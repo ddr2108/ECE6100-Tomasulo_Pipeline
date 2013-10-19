@@ -1,7 +1,7 @@
 #ifndef PROCSIM_HPP
 #define PROCSIM_HPP
 
-#include <cstdint>
+#include <stdint.h>
 
 #define DEFAULT_K0 1
 #define DEFAULT_K1 2

@@ -1,5 +1,5 @@
 #include <cstdio>
-#include <cinttypes>
+#include <inttypes.h>
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     uint64_t k0 = DEFAULT_K0;
     uint64_t k1 = DEFAULT_K1;
     uint64_t k2 = DEFAULT_K2;
-    uint64_t r = DEFAULT_Rs;
+    uint64_t r = DEFAULT_R;
 
     /* Read arguments */ 
     while(-1 != (opt = getopt(argc, argv, "r:i:j:k:l:f:m:h"))) {
