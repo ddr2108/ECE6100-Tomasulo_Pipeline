@@ -30,6 +30,9 @@ uint64_t k2 = 0;
 uint64_t f = 0;
 uint64_t m = 0;
 
+//Functional units resources
+uint64_t FU[3];
+
 //Register file
 int regFile[32];		
 
@@ -48,6 +51,16 @@ arrayPointers k2Pointers;
 //ROB Table for execution
 ROB *ROBTable;
 arrayPointers ROBPointers; 
+
+int empty(arrayPointers queuePointers){
+	if((dispatchPointers.tail-dispatchPointers.head)==1){
+		return TRUE;
+	}else if (dispatchPointers.tail==0 && dispatchPointers.head==(r-1)){
+		return TRUE; 
+	}else{
+		return FALSE;
+	}
+}
 
 int hasRoom(arrayPointers queuePointers){
 	if(queuePointers.head == queuePointers.tail){
@@ -145,6 +158,11 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 k1Pointers = {0,1};
 	 k2Pointers = {0,1};
 	 ROBPointers = {0,1};
+
+	 //Initialize resouces
+	 FU[0] = k0;
+	 FU[1] = k1;
+	 FU[2] = k2;
 }
 
 /**
@@ -172,7 +190,7 @@ void run_proc(proc_stats_t* p_stats) {
 	//Read the instructions
 	while(flag){
 		//Fetch F instructions at a time
-		for (int i = 0; i<f; i++){
+		for (int i = 0; i<f && flag==1; i++){
 			if (dispatchPointers.head != dispatchPointers.tail){
 				instruction++;													//Line number increment
 				success = read_instruction(p_inst);									//fetch instruction
@@ -190,7 +208,7 @@ void run_proc(proc_stats_t* p_stats) {
 		}
 
 		//Dispatcher
-		while(flag && dispatchPointers.head != dispatchPointers.tail){
+		while(flag && !empty(dispatchPointers)){
 			//Get the instruction
 			temp = dispatchQueue[dispatchPointers.head].p_inst;
 
@@ -209,8 +227,35 @@ void run_proc(proc_stats_t* p_stats) {
 			if (success){
 				addROB(temp);
 				removeQueue(&dispatchQueue, &dispatchPointers);
+			}else {
+				flag = 0;
 			}
 		}
+
+		//Scheduler
+		do{
+			success = 0;
+			//Scheduling
+			temp = k0Queue[k0Pointers.head].p_inst;
+			//Check if registers are avaialable and functional unit is avaialable
+			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
+				FU[0]--;
+				success = 1;
+			}
+			temp = k1Queue[k0Pointers.head].p_inst;
+			//Check if registers are avaialable and functional unit is avaialable
+			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
+				FU[1]--;
+				success = 1;
+			}
+			temp = k2Queue[k0Pointers.head].p_inst;
+			//Check if registers are avaialable and functional unit is avaialable
+			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
+				FU[2]--;
+				success = 1;
+			}
+		} while(success);
+
 
 		//Change clock cycle
 		cycle++;
