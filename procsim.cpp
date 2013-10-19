@@ -5,22 +5,24 @@
 #define FALSE 0
 #define TRUE  1
 
+//Structure for nodes of scheduler, dispatcher
 typedef struct _node{
-	int counter;
 	proc_inst_t p_inst;
-	_node *next;
 } node;
 
+//Structure for ROB
 typedef struct _ROB{
 	int dest;
 	proc_inst_t p_inst;
 } ROB;
 
+//Pointers for circular FIFO array
 typedef struct _arrayPointers{
 	int head;
 	int tail;
 } arrayPointers; 
 
+//Initialization Parameters
 uint64_t r = 0; 
 uint64_t k0 = 0;
 uint64_t k1 = 0;
@@ -28,31 +30,42 @@ uint64_t k2 = 0;
 uint64_t f = 0;
 uint64_t m = 0;
 
+//Register file
 int regFile[32];		
 
+//Dispatcher
 node* dispatchQueue;
-int dispatchRoom; 
+arrayPointers dispatchPointers; 
 
+//Scheudler
 node* k0Queue = NULL;
-int k0Room; 
+arrayPointers k0Pointers; 
 node* k1Queue = NULL;
-int k1Room; 
+arrayPointers k1Pointers; 
 node* k2Queue = NULL;
-int k2Room; 
+arrayPointers k2Pointers; 
 
+//ROB Table for execution
 ROB *ROBTable;
-int ROBhead = 0;
-int ROBtail = 1;
+arrayPointers ROBPointers; 
 
-int ROBadd(proc_inst_t p_inst){
-	if (ROBtail!=ROBhead){
+int hasRoom(arrayPointers queuePointers){
+	if(queuePointers.head == queuePointers.tail){
+		return FALSE;
+	}else{
+		return TRUE;
+	}
+}
+
+int addROB(proc_inst_t p_inst){
+	if (ROBPointers.tail!=ROBPointers.head){
 		//Put item into ROB table
-		ROBTable[ROBtail].dest = p_inst.dest_reg;
-		ROBTable[ROBtail].p_inst = p_inst;
+		ROBTable[ROBPointers.tail].dest = p_inst.dest_reg;
+		ROBTable[ROBPointers.tail].p_inst = p_inst;
 		//Fix register file
-		regFile[p_inst.dest_reg] = ROBtail;
+		regFile[p_inst.dest_reg] = ROBPointers.tail;
 		//Fix pointers
-		ROBtail = (ROBtail+1)%r;
+		ROBPointers.tail = (ROBPointers.tail+1)%r;
 	}else{
 		return FALSE;
 	}
@@ -60,35 +73,35 @@ int ROBadd(proc_inst_t p_inst){
 	return TRUE;
 }
 
-int ROBremove(){
+int removeROB(){
 	//Fix register file
-	if (regFile[ROBTable[ROBhead].dest] == ROBhead){
-		regFile[ROBTable[ROBhead].dest] = -1;
+	if (regFile[ROBTable[ROBPointers.head].dest] == ROBPointers.head){
+		regFile[ROBTable[ROBPointers.head].dest] = -1;
 	}
 
 	//Fix ROB queue
-	ROBhead = (ROBhead+1)%r;
+	ROBPointers.head = (ROBPointers.head+1)%r;
 
 	return TRUE;
 }
 
-void addQueue(node** head, int counter, proc_inst_t p_inst,int* room){
-	node* createNode = (node*) malloc(sizeof(node));	//Malloc new item
-	createNode->counter = counter;						//Adjust value
-	createNode->p_inst = p_inst;						//Adjust value
+int addQueue(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst){
+	if (queuePointers->tail!=queuePointers->head){
+		(*queue)[queuePointers->tail].p_inst = p_inst;
+		//Fix pointers
+		queuePointers->tail = (queuePointers->tail+1)%r;
+	}else{
+		return FALSE;
+	}
 
-	//Fix ordering of queue
-	createNode->next = *(head);		
-	*head = createNode;
-
-	(*room)--;			//Change size
+	return TRUE;
 }
 
-node* removeQueue(node** head, int* room){
-	node* returnNode = *head;		//Save original head
-	*head = (*head)->next;			//Reassign head
+node* removeQueue(node** queue, arrayPointers* queuePointers){
+	node* returnNode = (node *) malloc(sizeof(node));
+	*returnNode = (*queue)[queuePointers->head];
 
-	(*room)++;						//Change size
+	queuePointers->head = (queuePointers->head+1)%r;
 
 	return returnNode;				//Return node
 }
@@ -114,12 +127,6 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 f = fIn;
 	 m = mIn;
 
-	 //Size of queue
-	 dispatchRoom = r;
-	 k0Room = m*k0;
-	 k1Room = m*k1;
-	 k2Room = m*k2;
-
 	 //Initialize reg array
 	 for (int i = 0; i<32; i++){
 	 	regFile[i] = -1;
@@ -127,10 +134,17 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Allocate array
 	 ROBTable = (ROB*) malloc(r*sizeof(ROB));
-	 dispatchQueue = 
-	 k0Queue = 
-	 k1Queue = 
-	 k2Queue = 
+	 dispatchQueue = (node*) malloc(r*sizeof(node));
+	 k0Queue = (node*) malloc(k0*m*sizeof(node));
+	 k1Queue = (node*) malloc(k1*m*sizeof(node));
+	 k2Queue = (node*) malloc(k2*m*sizeof(node));
+
+	 //Initialize pointers
+	 dispatchPointers = {0,1}; 
+	 k0Pointers = {0,1};
+	 k1Pointers = {0,1};
+	 k2Pointers = {0,1};
+	 ROBPointers = {0,1};
 }
 
 /**
@@ -141,28 +155,64 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
  * @p_stats Pointer to the statistics structure
  */
 void run_proc(proc_stats_t* p_stats) {
+	int flag = 1;
+	int success = 0;
+
 	//line number
 	int instruction = 1;
 	int cycle = 0;
+
 	//Instruction
 	proc_inst_t* p_inst;
+	proc_inst_t temp;
 
 	//Allocate instruction
 	p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
 
 	//Read the instructions
-	while(dispatchRoom != 0){
+	while(flag){
 		//Fetch F instructions at a time
 		for (int i = 0; i<f; i++){
-			if (dispatchRoom != 0){
+			if (dispatchPointers.head != dispatchPointers.tail){
 				instruction++;													//Line number increment
-				read_instruction(p_inst);									//fetch instruction
-				addQueue(&dispatchQueue, instruction, *p_inst, &dispatchRoom);	//add to dispatch queue
+				success = read_instruction(p_inst);									//fetch instruction
+				//Check if end of file reached
+				if (success){
+					addQueue(&dispatchQueue, &dispatchPointers, *p_inst);	//add to dispatch queue
+				}else {
+					flag = 0;
+					break;
+				}
+
 			}else{
 				break;
 			}
 		}
 
+		//Dispatcher
+		while(flag && dispatchPointers.head != dispatchPointers.tail){
+			//Get the instruction
+			temp = dispatchQueue[dispatchPointers.head].p_inst;
+
+			//add to correct scheduling queue and ROB adn remove from dispatcher
+			if (temp.op_code == 0 && hasRoom(k0Pointers)){
+				success = addQueue(&k0Queue, &k0Pointers, temp);	
+			}else if(temp.op_code == 1 && hasRoom(k1Pointers)){
+				success = addQueue(&k1Queue, &k1Pointers, temp);	
+			}else if(temp.op_code == 2 && hasRoom(k2Pointers)){
+				success = addQueue(&k1Queue, &k1Pointers, temp);	
+			}else{
+				success = 0;
+			}
+
+			//If there was room in schedule add to ROB and remove from dispatcher
+			if (success){
+				addROB(temp);
+				removeQueue(&dispatchQueue, &dispatchPointers);
+			}
+		}
+
+		//Change clock cycle
 		cycle++;
 
 	}
