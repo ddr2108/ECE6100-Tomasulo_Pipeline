@@ -5,10 +5,20 @@
 #define FALSE 0
 #define TRUE  1
 
+#define FULL  2
+#define EMPTY  3
+#define HAS_ROOM  4
+
+
 //Structure for nodes of scheduler, dispatcher
 typedef struct _node{
 	proc_inst_t p_inst;
 } node;
+
+typedef struct _FUnode{
+	proc_inst_t p_inst;
+	int age;
+} FUnode;
 
 //Structure for ROB
 typedef struct _ROB{
@@ -30,9 +40,6 @@ uint64_t k2 = 0;
 uint64_t f = 0;
 uint64_t m = 0;
 
-//Functional units resources
-uint64_t FU[3];
-
 //Register file
 int regFile[32];		
 
@@ -42,31 +49,33 @@ arrayPointers dispatchPointers;
 
 //Scheudler
 node* k0Queue = NULL;
-arrayPointers k0Pointers; 
+arrayPointers k0QueuePointers; 
 node* k1Queue = NULL;
-arrayPointers k1Pointers; 
+arrayPointers k1QueuePointers; 
 node* k2Queue = NULL;
-arrayPointers k2Pointers; 
+arrayPointers k2QueuePointers; 
+
+//Execute
+node* k0FU = NULL;
+arrayPointers k0FUPointers; 
+node* k1FU = NULL;
+arrayPointers k1FUPointers; 
+node* k2FU = NULL;
+arrayPointers k2FUPointers; 
 
 //ROB Table for execution
 ROB *ROBTable;
 arrayPointers ROBPointers; 
 
-int empty(arrayPointers queuePointers){
-	if((dispatchPointers.tail-dispatchPointers.head)==1){
-		return TRUE;
-	}else if (dispatchPointers.tail==0 && dispatchPointers.head==(r-1)){
-		return TRUE; 
+int arrayStatus(arrayPointers queuePointers){
+	if((queuePointers.tail-queuePointers.head)==1){
+		return EMPTY;
+	}else if (queuePointers.tail==0 && queuePointers.head==(r-1)){
+		return EMPTY; 
+	}else if(queuePointers.head == queuePointers.tail){
+		return FULL;
 	}else{
-		return FALSE;
-	}
-}
-
-int hasRoom(arrayPointers queuePointers){
-	if(queuePointers.head == queuePointers.tail){
-		return FALSE;
-	}else{
-		return TRUE;
+		return HAS_ROOM;
 	}
 }
 
@@ -98,11 +107,11 @@ int removeROB(){
 	return TRUE;
 }
 
-int addQueue(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst){
+int addArray(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst, int size){
 	if (queuePointers->tail!=queuePointers->head){
 		(*queue)[queuePointers->tail].p_inst = p_inst;
 		//Fix pointers
-		queuePointers->tail = (queuePointers->tail+1)%r;
+		queuePointers->tail = (queuePointers->tail+1)%size;
 	}else{
 		return FALSE;
 	}
@@ -110,11 +119,11 @@ int addQueue(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst){
 	return TRUE;
 }
 
-node* removeQueue(node** queue, arrayPointers* queuePointers){
+node* removeArray(node** queue, arrayPointers* queuePointers, int size){
 	node* returnNode = (node *) malloc(sizeof(node));
 	*returnNode = (*queue)[queuePointers->head];
 
-	queuePointers->head = (queuePointers->head+1)%r;
+	queuePointers->head = (queuePointers->head+1)%size;
 
 	return returnNode;				//Return node
 }
@@ -151,18 +160,19 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 k0Queue = (node*) malloc(k0*m*sizeof(node));
 	 k1Queue = (node*) malloc(k1*m*sizeof(node));
 	 k2Queue = (node*) malloc(k2*m*sizeof(node));
+	 k0FU = (node*) malloc(k0*sizeof(node));
+	 k1FU = (node*) malloc(k1*sizeof(node));
+	 k2FU = (node*) malloc(k2*sizeof(node));
 
 	 //Initialize pointers
 	 dispatchPointers = {0,1}; 
-	 k0Pointers = {0,1};
-	 k1Pointers = {0,1};
-	 k2Pointers = {0,1};
+	 k0QueuePointers = {0,1};
+	 k1QueuePointers = {0,1};
+	 k2QueuePointers = {0,1};
+	 k0FUPointers = {0,1};
+	 k1FUPointers = {0,1};
+	 k2FUPointers = {0,1};
 	 ROBPointers = {0,1};
-
-	 //Initialize resouces
-	 FU[0] = k0;
-	 FU[1] = k1;
-	 FU[2] = k2;
 }
 
 /**
@@ -191,12 +201,12 @@ void run_proc(proc_stats_t* p_stats) {
 	while(flag){
 		//Fetch F instructions at a time
 		for (int i = 0; i<f && flag==1; i++){
-			if (dispatchPointers.head != dispatchPointers.tail){
-				instruction++;													//Line number increment
+			if (arrayStatus(dispatchPointers)!=FULL){
 				success = read_instruction(p_inst);									//fetch instruction
 				//Check if end of file reached
 				if (success){
-					addQueue(&dispatchQueue, &dispatchPointers, *p_inst);	//add to dispatch queue
+					addArray(&dispatchQueue, &dispatchPointers, *p_inst, r);	//add to dispatch queue
+					instruction++;													//Line number increment
 				}else {
 					flag = 0;
 					break;
@@ -208,17 +218,17 @@ void run_proc(proc_stats_t* p_stats) {
 		}
 
 		//Dispatcher
-		while(flag && !empty(dispatchPointers)){
+		while(flag && arrayStatus(dispatchPointers)!=EMPTY){
 			//Get the instruction
 			temp = dispatchQueue[dispatchPointers.head].p_inst;
 
-			//add to correct scheduling queue and ROB adn remove from dispatcher
-			if (temp.op_code == 0 && hasRoom(k0Pointers)){
-				success = addQueue(&k0Queue, &k0Pointers, temp);	
-			}else if(temp.op_code == 1 && hasRoom(k1Pointers)){
-				success = addQueue(&k1Queue, &k1Pointers, temp);	
-			}else if(temp.op_code == 2 && hasRoom(k2Pointers)){
-				success = addQueue(&k1Queue, &k1Pointers, temp);	
+			//add to correct scheduling queue and ROB and remove from dispatcher
+			if (temp.op_code == 0 && arrayStatus(k0QueuePointers)==HAS_ROOM){
+				success = addArray(&k0Queue, &k0QueuePointers, temp, k0*m);	
+			}else if(temp.op_code == 1 && arrayStatus(k1QueuePointers)==HAS_ROOM){
+				success = addArray(&k1Queue, &k1QueuePointers, temp, k1*m);	
+			}else if(temp.op_code == 2 && arrayStatus(k2QueuePointers)==HAS_ROOM){
+				success = addArray(&k2Queue, &k2QueuePointers, temp, k2*m);	
 			}else{
 				success = 0;
 			}
@@ -226,7 +236,7 @@ void run_proc(proc_stats_t* p_stats) {
 			//If there was room in schedule add to ROB and remove from dispatcher
 			if (success){
 				addROB(temp);
-				removeQueue(&dispatchQueue, &dispatchPointers);
+				removeArray(&dispatchQueue, &dispatchPointers,r);
 			}else {
 				flag = 0;
 			}
@@ -236,19 +246,20 @@ void run_proc(proc_stats_t* p_stats) {
 		do{
 			success = 0;
 			//Scheduling
-			temp = k0Queue[k0Pointers.head].p_inst;
+			temp = k0Queue[k0QueuePointers.head].p_inst;
 			//Check if registers are avaialable and functional unit is avaialable
 			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
+				allocate new FU and intiialize age
 				FU[0]--;
 				success = 1;
 			}
-			temp = k1Queue[k0Pointers.head].p_inst;
+			temp = k1Queue[k0QueuePointers.head].p_inst;
 			//Check if registers are avaialable and functional unit is avaialable
 			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
 				FU[1]--;
 				success = 1;
 			}
-			temp = k2Queue[k0Pointers.head].p_inst;
+			temp = k2Queue[k0QueuePointers.head].p_inst;
 			//Check if registers are avaialable and functional unit is avaialable
 			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
 				FU[2]--;
@@ -256,6 +267,19 @@ void run_proc(proc_stats_t* p_stats) {
 			}
 		} while(success);
 
+		//Execute
+		for (int i = 0; i<k0;i++){
+			if ()
+				decrement timer
+			if 0
+				add to ROB
+		}
+
+		//Commit
+		for (){
+			remove from ROB
+			update reg
+		}*/
 
 		//Change clock cycle
 		cycle++;
