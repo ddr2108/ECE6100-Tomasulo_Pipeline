@@ -13,11 +13,16 @@
 //Structure for nodes of scheduler, dispatcher
 typedef struct _node{
 	proc_inst_t p_inst;
+	node *next;
+	node *prev;
 } node;
 
 typedef struct _FUnode{
 	proc_inst_t p_inst;
+	node *next;
+	node *prev;
 	int age;
+	int valid;
 } FUnode;
 
 //Structure for ROB
@@ -30,6 +35,7 @@ typedef struct _ROB{
 typedef struct _arrayPointers{
 	int head;
 	int tail;
+	int size;
 } arrayPointers; 
 
 //Initialization Parameters
@@ -107,11 +113,14 @@ int removeROB(){
 	return TRUE;
 }
 
-int addArray(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst, int size){
-	if (queuePointers->tail!=queuePointers->head){
-		(*queue)[queuePointers->tail].p_inst = p_inst;
+int addArray(arrayPointers* arrayPointersIn, node* nextNode){
+	//Add new element if there is enough room
+	if (arrayPointersIn->size>0){
 		//Fix pointers
-		queuePointers->tail = (queuePointers->tail+1)%size;
+		nextNode->prev = arrayPointersIn->tail;
+		arrayPointersIn->tail->next = nextNode;
+		//Fix array pointers
+		arrayPointersIn->tail = nextNode;
 	}else{
 		return FALSE;
 	}
@@ -119,13 +128,25 @@ int addArray(node** queue, arrayPointers* queuePointers, proc_inst_t p_inst, int
 	return TRUE;
 }
 
-node* removeArray(node** queue, arrayPointers* queuePointers, int size){
-	node* returnNode = (node *) malloc(sizeof(node));
-	*returnNode = (*queue)[queuePointers->head];
+void removeArray(arrayPointers* queuePointers, node* deleteNode){
+	if (deleteNode->prev==NULL){			//Head element
+		if (deleteNode->next==NULL){		//Special case where there is only 1 element
+			queuePointers->head = NULL;
+			queuePointers->tail = NULL;
+		}else{
+			queuePointers->head = deleteNode->next;
+			queuePointers->head->prev = NULL;
+		}
+		free(deleteNode);
+	}else if (deleteNode->next==NULL){		//Tail element
+		queuePointers->tail = deleteNode->prev;
+		queuePointers->tail->next = NULL;
+	} else{									//Element in middle
+		deleteNode->prev->next = deleteNode->next;
+		deleteNode->next->prev = deleteNode->prev;		
+	}
 
-	queuePointers->head = (queuePointers->head+1)%size;
-
-	return returnNode;				//Return node
+	free(deleteNode);		//Free allocated memory
 }
 
 /**
@@ -268,18 +289,54 @@ void run_proc(proc_stats_t* p_stats) {
 		} while(success);
 
 		//Execute
-		for (int i = 0; i<k0;i++){
-			if ()
-				decrement timer
-			if 0
-				add to ROB
+		FUnode* tempFUnode;
+		//Execute k0 instructions
+		tempFUnode = k0FUPointers.head;
+		for (int i = 0; i<k0 && tempFUnode!=NULL; i++){
+			if (tempFUnode->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					addROB()
+					removeArray()				}
+			}
+			tempFUnode = tempFUnode->next;
 		}
+		//Execute k1 instructions
+		tempFUnode = k1FUPointers.head;
+		for (int i = 0; i<k1 && tempFUnode!=NULL; i++){
+			if (tempFUnode->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					addROB()
+					removeArray()				}
+			}
+			tempFUnode = tempFUnode->next;
+		}//Execute k0 instructions
+		tempFUnode = k2FUPointers.head;
+		for (int i = 0; i<k2 && tempFUnode!=NULL; i++){
+			if (tempFUnode->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					addROB()
+					removeArray()
+
+				}
+			}
+			tempFUnode = tempFUnode->next;
+		}
+
 
 		//Commit
 		for (){
 			remove from ROB
 			update reg
-		}*/
+		}
 
 		//Change clock cycle
 		cycle++;
