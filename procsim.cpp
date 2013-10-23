@@ -9,26 +9,47 @@
 #define EMPTY  3
 #define HAS_ROOM  4
 
+//Register structure
+typedef struct _reg{
+	int ready;
+	int tag;
+} reg;
 
-//Structure for nodes of scheduler, dispatcher
+//Generic node
 typedef struct _node{
 	proc_inst_t p_inst;
 	node *next;
 	node *prev;
+	char filler[20]
 } node;
 
+//Structure for scheduling node
+typedef struct _schedNode{
+	proc_inst_t p_inst;
+	schedNode *next;
+	schedNode *prev;
+	int tagDest;
+	int src1Tag;
+	int src2Tag;
+	int src1Ready;
+	int src2Ready;
+} schedNode;
+
+//Structure for functional unit
 typedef struct _FUnode{
 	proc_inst_t p_inst;
-	node *next;
-	node *prev;
+	FUnode *next;
+	FUnode *prev;
+	int tagDest;
 	int age;
 	int valid;
+	char filler[8];
 } FUnode;
 
 //Structure for ROB
 typedef struct _ROB{
-	int dest;
 	proc_inst_t p_inst;
+	int destTag;
 } ROB;
 
 //Pointers for circular FIFO array
@@ -47,7 +68,7 @@ uint64_t f = 0;
 uint64_t m = 0;
 
 //Register file
-int regFile[32];		
+reg regFile[32];		
 
 //Dispatcher
 node* dispatchQueue;
@@ -172,7 +193,8 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Initialize reg array
 	 for (int i = 0; i<32; i++){
-	 	regFile[i] = -1;
+	 	regFile[i].ready = 0;
+	 	regFile[i].tag = 0;
 	 }
 
 	 //Allocate array
@@ -186,14 +208,14 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 k2FU = (node*) malloc(k2*sizeof(node));
 
 	 //Initialize pointers
-	 dispatchPointers = {0,1}; 
-	 k0QueuePointers = {0,1};
-	 k1QueuePointers = {0,1};
-	 k2QueuePointers = {0,1};
-	 k0FUPointers = {0,1};
-	 k1FUPointers = {0,1};
-	 k2FUPointers = {0,1};
-	 ROBPointers = {0,1};
+	 dispatchPointers = {0,0,0}; 
+	 k0QueuePointers = {0,0,0};
+	 k1QueuePointers = {0,0,0};
+	 k2QueuePointers = {0,0,0};
+	 k0FUPointers = {0,0,0};
+	 k1FUPointers = {0,0,0};
+	 k2FUPointers = {0,0,0};
+	 ROBPointers = {0,0,0};
 }
 
 /**
@@ -264,28 +286,76 @@ void run_proc(proc_stats_t* p_stats) {
 		}
 
 		//Scheduler
+		schedNode* temp0 = k0QueuePointers.head;
+		schedNode* temp1 = k1QueuePointers.head;
+		schedNode* temp2 = k2QueuePointers.head;
 		do{
+
 			success = 0;
 			//Scheduling
-			temp = k0Queue[k0QueuePointers.head].p_inst;
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
-				allocate new FU and intiialize age
-				FU[0]--;
+			if (temp0 && i<m*k0 && temp0.src1Ready == 1 && temp0.src2Ready[1]==1  && k0FUPointers.size>0){
+				//Add new node to list
+				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
+				newNode->age = 1;
+				newNode->valid = 1;
+				newNode->tagDest = temp0->tagDest;
+				
+				addArray(k0FUPointers, newNode);
+				//Update scoreboard
+				k0FUPointers.size--;
 				success = 1;
+			
+				//Go to next element
+				temp0 = temp0->next;
+				removeArray(k0QueuePointers, temp0);
+			}else{
+				//Go to next element
+				temp0 = temp0->next;
 			}
-			temp = k1Queue[k0QueuePointers.head].p_inst;
+
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
-				FU[1]--;
+			if (temp1 && i<m*k1 && temp1.src1Ready == 1 && temp1.src2Ready[1]==1  && k1FUPointers.size>0){
+				//Add new node to list
+				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
+				newNode->age = 2;
+				newNode->valid = 1;
+				newNode->tagDest = temp1->tagDest;
+				
+				addArray(k1FUPointers, newNode);
+				//Update scoreboard
+				k1FUPointers.size--;
 				success = 1;
+				
+				//Go to next element
+				temp1 = temp1->next;
+				removeArray(k1QueuePointers, temp1);
+			}else{
+				//Go to next element
+				temp1 = temp1->next;
 			}
-			temp = k2Queue[k0QueuePointers.head].p_inst;
+
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp.src_reg[0]==-1 && temp.src_reg[1]==-1 && FU[0]>0){
-				FU[2]--;
+			if (temp2 && i<m*k2 && temp2.src1Ready == 1 && temp2.src2Ready[1]==1 && k2FUPointers.size>0){
+				//Add new node to list
+				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
+				newNode->age = 3;
+				newNode->valid = 1;
+				newNode->tagDest = temp2->tagDest;
+				
+				addArray(k2FUPointers, newNode);
+				//Update scoreboard
+				k2FUPointers.size--;
 				success = 1;
+			
+				//Go to next element
+				temp2 = temp2->next;
+				removeArray(k2QueuePointers, temp2);
+			}else{
+				//Go to next element
+				temp2 = temp2->next;
 			}
+
 		} while(success);
 
 		//Execute
@@ -325,7 +395,6 @@ void run_proc(proc_stats_t* p_stats) {
 				if (tempFUnode->age == 0){
 					addROB()
 					removeArray()
-
 				}
 			}
 			tempFUnode = tempFUnode->next;
@@ -334,8 +403,9 @@ void run_proc(proc_stats_t* p_stats) {
 
 		//Commit
 		for (){
-			remove from ROB
-			update reg
+			removeROB()
+			update reg file
+			update scheduler
 		}
 
 		//Change clock cycle
