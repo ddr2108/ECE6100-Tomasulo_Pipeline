@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include "procsim.hpp"
 
-#define FALSE 0
+#define FALSE -1
 #define TRUE  1
 
 #define FULL  2
@@ -20,6 +20,7 @@ typedef struct _node{
 	proc_inst_t p_inst;
 	node *next;
 	node *prev;
+	int line_number;
 	char filler[20]
 } node;
 
@@ -28,11 +29,10 @@ typedef struct _schedNode{
 	proc_inst_t p_inst;
 	schedNode *next;
 	schedNode *prev;
-	int tagDest;
+	int line_number;
+	int destTag;
 	int src1Tag;
 	int src2Tag;
-	int src1Ready;
-	int src2Ready;
 } schedNode;
 
 //Structure for functional unit
@@ -40,7 +40,8 @@ typedef struct _FUnode{
 	proc_inst_t p_inst;
 	FUnode *next;
 	FUnode *prev;
-	int tagDest;
+	int line_number;
+	int destTag;
 	int age;
 	int valid;
 	char filler[8];
@@ -49,6 +50,7 @@ typedef struct _FUnode{
 //Structure for ROB
 typedef struct _ROB{
 	proc_inst_t p_inst;
+	int line_number;
 	int destTag;
 } ROB;
 
@@ -106,20 +108,23 @@ int arrayStatus(arrayPointers queuePointers){
 	}
 }
 
-int addROB(proc_inst_t p_inst){
+int addROB(node* dispatchNode){
+	int tag;		//tag added to 
+
 	if (ROBPointers.tail!=ROBPointers.head){
 		//Put item into ROB table
-		ROBTable[ROBPointers.tail].dest = p_inst.dest_reg;
-		ROBTable[ROBPointers.tail].p_inst = p_inst;
+		ROBTable[ROBPointers.tail].line_number = dispatchNode->line_number;
+		ROBTable[ROBPointers.tail].destTag = ROBPointers.tail;
+		ROBTable[ROBPointers.tail].p_inst = dispatchNode->p_inst;
 		//Fix register file
-		regFile[p_inst.dest_reg] = ROBPointers.tail;
+		regFile[dispatchNode->p_inst.dest_reg] = ROBPointers.tail;
 		//Fix pointers
 		ROBPointers.tail = (ROBPointers.tail+1)%r;
 	}else{
 		return FALSE;
 	}
 
-	return TRUE;
+	return tag;
 }
 
 int removeROB(){
@@ -168,6 +173,22 @@ void removeArray(arrayPointers* queuePointers, node* deleteNode){
 	}
 
 	free(deleteNode);		//Free allocated memory
+}
+
+schedNode* createSchedNode(node* dispatchNode, int tag){
+	schedNode* newNode = (schedNode*) malloc(sizeof(schedNode));	//Create a new node
+
+	//Copy over data
+	newNode->p_inst = dispatchNode->p_inst;
+	newNode->line_number = dispatchNode
+	newNode->destTag = tag;
+
+	//Add valididty data
+	newNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]];
+	newNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]];
+
+	//Return Data
+	return newNode; 
 }
 
 /**
@@ -226,8 +247,13 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
  * @p_stats Pointer to the statistics structure
  */
 void run_proc(proc_stats_t* p_stats) {
+	//Flag to keep program running
 	int flag = 1;
-	int success = 0;
+
+	//Reading flags
+	int readFlag = 1;
+	//Dispatcher flags
+	int dispatcherFlag = 1;
 
 	//line number
 	int instruction = 1;
@@ -237,52 +263,80 @@ void run_proc(proc_stats_t* p_stats) {
 	proc_inst_t* p_inst;
 	proc_inst_t temp;
 
-	//Allocate instruction
-	p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
-
-	//Read the instructions
+	//Pipeline
 	while(flag){
-		//Fetch F instructions at a time
-		for (int i = 0; i<f && flag==1; i++){
-			if (arrayStatus(dispatchPointers)!=FULL){
-				success = read_instruction(p_inst);									//fetch instruction
-				//Check if end of file reached
-				if (success){
-					addArray(&dispatchQueue, &dispatchPointers, *p_inst, r);	//add to dispatch queue
-					instruction++;													//Line number increment
-				}else {
-					flag = 0;
-					break;
-				}
 
+		//Read Instructions
+		node* readNode;		//Node for new instructions
+		//Fetch F instructions at a time
+		for (int i = 0; i<f && readFlag; i++){
+			if (arrayStatus(dispatchPointers)!=FULL){
+				//Allocate instruction
+				p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
+				readFlag = read_instruction(p_inst);									//fetch instruction
+				//Check if end of file reached
+				if (readFlag){		//If thre is an instruction
+					//Create new node
+					readNode = (node*) malloc(sizeof(node));
+					readNode->line_number = instruction;
+					readNode->p_inst = *p_inst;
+					//Add node to list of instructions
+					addArray(&dispatchPointers, readNode);	//add to dispatch queue
+					instruction++;													//Line number increment
+				}
 			}else{
 				break;
 			}
 		}
 
 		//Dispatcher
-		while(flag && arrayStatus(dispatchPointers)!=EMPTY){
-			//Get the instruction
-			temp = dispatchQueue[dispatchPointers.head].p_inst;
+		//Reset dispatcherFlag
+		node* dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
+		schedNode* schedNodeAdd;
+		int tag; 
+		while(dispatcherFlag!=FALSE && arrayStatus(dispatchPointers)!=EMPTY && dispatchNode){
+			p_inst dispatchInstruction = dispatchNode->p_inst; 	//Get instruction
 
 			//add to correct scheduling queue and ROB and remove from dispatcher
-			if (temp.op_code == 0 && arrayStatus(k0QueuePointers)==HAS_ROOM){
-				success = addArray(&k0Queue, &k0QueuePointers, temp, k0*m);	
-			}else if(temp.op_code == 1 && arrayStatus(k1QueuePointers)==HAS_ROOM){
-				success = addArray(&k1Queue, &k1QueuePointers, temp, k1*m);	
-			}else if(temp.op_code == 2 && arrayStatus(k2QueuePointers)==HAS_ROOM){
-				success = addArray(&k2Queue, &k2QueuePointers, temp, k2*m);	
+			if (dispatchInstruction.op_code == 0 && arrayStatus(k0QueuePointers)==HAS_ROOM){
+				tag = addROB(dispatchNode);		//Add to ROB
+				//if added to ROB, add to scheduler
+				if (tag!=FALSE){
+					schedNodeAdd = createSchedNode(dispatchNode, tag);
+					dispatcherFlag = addArray(&k0Queue, schedNodeAdd);	
+				}else{
+					dispatcherFlag = FALSE;
+				}
+			}else if(dispatchInstruction.op_code == 1 && arrayStatus(k1QueuePointers)==HAS_ROOM){
+				tag = addROB(dispatchNode);		//Add to ROB
+				//if added to ROB, add to scheduler
+				if (tag!=FALSE){
+					schedNodeAdd = createSchedNode(dispatchNode, tag);
+					dispatcherFlag = addArray(&k1Queue, schedNodeAdd);	
+				}else{
+					dispatcherFlag = FALSE;
+				}
+			}else if(dispatchInstruction.op_code == 2 && arrayStatus(k2QueuePointers)==HAS_ROOM){
+				tag = addROB(dispatchNode);		//Add to ROB
+				//if added to ROB, add to scheduler
+				if (tag!=FALSE){
+					schedNodeAdd = createSchedNode(dispatchNode, tag);
+					dispatcherFlag = addArray(&k2Queue, schedNodeAdd);	
+				}else{
+					dispatcherFlag = FALSE;
+				}
 			}else{
-				success = 0;
+				dispatcherFlag = FALSE;
 			}
 
 			//If there was room in schedule add to ROB and remove from dispatcher
-			if (success){
-				addROB(temp);
-				removeArray(&dispatchQueue, &dispatchPointers,r);
-			}else {
-				flag = 0;
+			if (dispatcherFlag!=FALSE){
+				//Go to next item in scheduler
+				dispatchNode = dispatchNode->next;
+				//Remove item from dispatcher queue
+				removeArray(&dispatchQueue, dispatchNode->prev);
 			}
+
 		}
 
 		//Scheduler
