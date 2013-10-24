@@ -52,6 +52,7 @@ typedef struct _ROB{
 	proc_inst_t p_inst;
 	int line_number;
 	int destTag;
+	int done;
 } ROB;
 
 //Pointers for circular FIFO array
@@ -73,23 +74,16 @@ uint64_t m = 0;
 reg regFile[32];		
 
 //Dispatcher
-node* dispatchQueue;
 arrayPointers dispatchPointers; 
 
 //Scheudler
-node* k0Queue = NULL;
 arrayPointers k0QueuePointers; 
-node* k1Queue = NULL;
 arrayPointers k1QueuePointers; 
-node* k2Queue = NULL;
 arrayPointers k2QueuePointers; 
 
 //Execute
-node* k0FU = NULL;
 arrayPointers k0FUPointers; 
-node* k1FU = NULL;
 arrayPointers k1FUPointers; 
-node* k2FU = NULL;
 arrayPointers k2FUPointers; 
 
 //ROB Table for execution
@@ -116,6 +110,7 @@ int addROB(node* dispatchNode){
 		ROBTable[ROBPointers.tail].line_number = dispatchNode->line_number;
 		ROBTable[ROBPointers.tail].destTag = ROBPointers.tail;
 		ROBTable[ROBPointers.tail].p_inst = dispatchNode->p_inst;
+		ROBTable[ROBPointers.tail].done = 0;
 		//Fix register file
 		regFile[dispatchNode->p_inst.dest_reg] = ROBPointers.tail;
 		//Fix pointers
@@ -125,6 +120,10 @@ int addROB(node* dispatchNode){
 	}
 
 	return tag;
+}
+
+void updateROB(int index){
+	ROBTable[index].done = 1; 
 }
 
 int removeROB(){
@@ -142,9 +141,16 @@ int removeROB(){
 int addArray(arrayPointers* arrayPointersIn, node* nextNode){
 	//Add new element if there is enough room
 	if (arrayPointersIn->size>0){
+		arrayPointersIn->size--;	//Decrease room
 		//Fix pointers
 		nextNode->prev = arrayPointersIn->tail;
-		arrayPointersIn->tail->next = nextNode;
+		nextNode->next = NULL;
+		if (arrayPointersIn->tail != NULL){
+			arrayPointersIn->tail->next = nextNode;
+		}else{		//means it was empty before
+			//Fix array pointers
+			arrayPointersIn->head = nextNode;
+		}
 		//Fix array pointers
 		arrayPointersIn->tail = nextNode;
 	}else{
@@ -154,23 +160,24 @@ int addArray(arrayPointers* arrayPointersIn, node* nextNode){
 	return TRUE;
 }
 
-void removeArray(arrayPointers* queuePointers, node* deleteNode){
+void removeArray(arrayPointers* arrayPointersIn, node* deleteNode){
 	if (deleteNode->prev==NULL){			//Head element
 		if (deleteNode->next==NULL){		//Special case where there is only 1 element
-			queuePointers->head = NULL;
-			queuePointers->tail = NULL;
+			arrayPointersIn->head = NULL;
+			arrayPointersIn->tail = NULL;
 		}else{
-			queuePointers->head = deleteNode->next;
-			queuePointers->head->prev = NULL;
+			arrayPointersIn->head = deleteNode->next;
+			arrayPointersIn->head->prev = NULL;
 		}
-		free(deleteNode);
 	}else if (deleteNode->next==NULL){		//Tail element
-		queuePointers->tail = deleteNode->prev;
-		queuePointers->tail->next = NULL;
+		arrayPointersIn->tail = deleteNode->prev;
+		arrayPointersIn->tail->next = NULL;
 	} else{									//Element in middle
-		deleteNode->prev->next = deleteNode->next;
-		deleteNode->next->prev = deleteNode->prev;		
+		arrayPointersIn->prev->next = deleteNode->next;
+		arrayPointersIn->next->prev = deleteNode->prev;		
 	}
+	//Add room to linked list
+	arrayPointersIn->size++;
 
 	free(deleteNode);		//Free allocated memory
 }
@@ -180,12 +187,28 @@ schedNode* createSchedNode(node* dispatchNode, int tag){
 
 	//Copy over data
 	newNode->p_inst = dispatchNode->p_inst;
-	newNode->line_number = dispatchNode
+	newNode->line_number = dispatchNode->line_number;
 	newNode->destTag = tag;
 
 	//Add valididty data
 	newNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]];
 	newNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]];
+
+	//Return Data
+	return newNode; 
+}
+
+FUnode* createFUNode(schedNode* scheduledhNode, int age){
+	FUnode* newNode = (FUnode*) malloc(sizeof(FUnode));	//Create a new node
+
+	//Copy over data
+	newNode->p_inst = scheduledhNode->p_inst;
+	newNode->line_number = scheduledhNode->line_number;
+	newNode->destTag = scheduledhNode->destTag;
+
+	//Add valididty data
+	newNode->age = age;
+	newNode->valid = 1;
 
 	//Return Data
 	return newNode; 
@@ -220,23 +243,16 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Allocate array
 	 ROBTable = (ROB*) malloc(r*sizeof(ROB));
-	 dispatchQueue = (node*) malloc(r*sizeof(node));
-	 k0Queue = (node*) malloc(k0*m*sizeof(node));
-	 k1Queue = (node*) malloc(k1*m*sizeof(node));
-	 k2Queue = (node*) malloc(k2*m*sizeof(node));
-	 k0FU = (node*) malloc(k0*sizeof(node));
-	 k1FU = (node*) malloc(k1*sizeof(node));
-	 k2FU = (node*) malloc(k2*sizeof(node));
 
 	 //Initialize pointers
-	 dispatchPointers = {0,0,0}; 
-	 k0QueuePointers = {0,0,0};
-	 k1QueuePointers = {0,0,0};
-	 k2QueuePointers = {0,0,0};
-	 k0FUPointers = {0,0,0};
-	 k1FUPointers = {0,0,0};
-	 k2FUPointers = {0,0,0};
-	 ROBPointers = {0,0,0};
+	 dispatchPointers = {0,0,r}; 
+	 k0QueuePointers = {0,0,m*k0};
+	 k1QueuePointers = {0,0,m*k1};
+	 k2QueuePointers = {0,0,m*k2};
+	 k0FUPointers = {0,0,k0};
+	 k1FUPointers = {0,0,k1};
+	 k2FUPointers = {0,0,k2};
+	 ROBPointers = {0,0,r};
 }
 
 /**
@@ -254,6 +270,8 @@ void run_proc(proc_stats_t* p_stats) {
 	int readFlag = 1;
 	//Dispatcher flags
 	int dispatcherFlag = 1;
+	//SchedulerFlag
+	int schedFlag = 1; 
 
 	//line number
 	int instruction = 1;
@@ -292,6 +310,7 @@ void run_proc(proc_stats_t* p_stats) {
 		//Dispatcher
 		//Reset dispatcherFlag
 		node* dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
+		node* dispatchNodeTemp; 
 		schedNode* schedNodeAdd;
 		int tag; 
 		while(dispatcherFlag!=FALSE && arrayStatus(dispatchPointers)!=EMPTY && dispatchNode){
@@ -303,7 +322,7 @@ void run_proc(proc_stats_t* p_stats) {
 				//if added to ROB, add to scheduler
 				if (tag!=FALSE){
 					schedNodeAdd = createSchedNode(dispatchNode, tag);
-					dispatcherFlag = addArray(&k0Queue, schedNodeAdd);	
+					dispatcherFlag = addArray(&k0QueuePointers, schedNodeAdd);	
 				}else{
 					dispatcherFlag = FALSE;
 				}
@@ -312,7 +331,7 @@ void run_proc(proc_stats_t* p_stats) {
 				//if added to ROB, add to scheduler
 				if (tag!=FALSE){
 					schedNodeAdd = createSchedNode(dispatchNode, tag);
-					dispatcherFlag = addArray(&k1Queue, schedNodeAdd);	
+					dispatcherFlag = addArray(&k1QueuePointers, schedNodeAdd);	
 				}else{
 					dispatcherFlag = FALSE;
 				}
@@ -321,7 +340,7 @@ void run_proc(proc_stats_t* p_stats) {
 				//if added to ROB, add to scheduler
 				if (tag!=FALSE){
 					schedNodeAdd = createSchedNode(dispatchNode, tag);
-					dispatcherFlag = addArray(&k2Queue, schedNodeAdd);	
+					dispatcherFlag = addArray(&k2QueuePointers, schedNodeAdd);	
 				}else{
 					dispatcherFlag = FALSE;
 				}
@@ -332,126 +351,127 @@ void run_proc(proc_stats_t* p_stats) {
 			//If there was room in schedule add to ROB and remove from dispatcher
 			if (dispatcherFlag!=FALSE){
 				//Go to next item in scheduler
+				dispatchNodeTemp = dispatchNode;
 				dispatchNode = dispatchNode->next;
 				//Remove item from dispatcher queue
-				removeArray(&dispatchQueue, dispatchNode->prev);
+				removeArray(&dispatchQueue, dispatchNodeTemp);
 			}
 
 		}
 
 		//Scheduler
+		schedNode* temp;
 		schedNode* temp0 = k0QueuePointers.head;
 		schedNode* temp1 = k1QueuePointers.head;
 		schedNode* temp2 = k2QueuePointers.head;
+		FUnode* functionalNode;
 		do{
 
-			success = 0;
-			//Scheduling
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp0 && i<m*k0 && temp0.src1Ready == 1 && temp0.src2Ready[1]==1  && k0FUPointers.size>0){
+			if (temp0 && k0FUPointers.size>0 && temp0.src1Tag == -1 && temp0.src2Tag[1]==-1){
 				//Add new node to list
-				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
-				newNode->age = 1;
-				newNode->valid = 1;
-				newNode->tagDest = temp0->tagDest;
+				functionalNode = createFUNode(temp0, 1)
 				
 				addArray(k0FUPointers, newNode);
-				//Update scoreboard
-				k0FUPointers.size--;
 				success = 1;
 			
 				//Go to next element
+				temp = temp0;
 				temp0 = temp0->next;
-				removeArray(k0QueuePointers, temp0);
+				//Remove previous item from array
+				removeArray(&k0QueuePointers, temp);
 			}else{
-				//Go to next element
-				temp0 = temp0->next;
-			}
-
-			//Check if registers are avaialable and functional unit is avaialable
-			if (temp1 && i<m*k1 && temp1.src1Ready == 1 && temp1.src2Ready[1]==1  && k1FUPointers.size>0){
-				//Add new node to list
-				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
-				newNode->age = 2;
-				newNode->valid = 1;
-				newNode->tagDest = temp1->tagDest;
-				
-				addArray(k1FUPointers, newNode);
-				//Update scoreboard
-				k1FUPointers.size--;
-				success = 1;
-				
-				//Go to next element
-				temp1 = temp1->next;
-				removeArray(k1QueuePointers, temp1);
-			}else{
-				//Go to next element
-				temp1 = temp1->next;
-			}
-
-			//Check if registers are avaialable and functional unit is avaialable
-			if (temp2 && i<m*k2 && temp2.src1Ready == 1 && temp2.src2Ready[1]==1 && k2FUPointers.size>0){
-				//Add new node to list
-				FUnode* newNode = (FUnode*) malloc(sizeof(newNode));
-				newNode->age = 3;
-				newNode->valid = 1;
-				newNode->tagDest = temp2->tagDest;
-				
-				addArray(k2FUPointers, newNode);
-				//Update scoreboard
-				k2FUPointers.size--;
-				success = 1;
-			
-				//Go to next element
-				temp2 = temp2->next;
-				removeArray(k2QueuePointers, temp2);
-			}else{
-				//Go to next element
-				temp2 = temp2->next;
-			}
-
-		} while(success);
-
-		//Execute
-		FUnode* tempFUnode;
-		//Execute k0 instructions
-		tempFUnode = k0FUPointers.head;
-		for (int i = 0; i<k0 && tempFUnode!=NULL; i++){
-			if (tempFUnode->valid == 1){
-				//Decrease time left
-				tempFUnode->age--;
-				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					addROB()
-					removeArray()				}
-			}
-			tempFUnode = tempFUnode->next;
-		}
-		//Execute k1 instructions
-		tempFUnode = k1FUPointers.head;
-		for (int i = 0; i<k1 && tempFUnode!=NULL; i++){
-			if (tempFUnode->valid == 1){
-				//Decrease time left
-				tempFUnode->age--;
-				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					addROB()
-					removeArray()				}
-			}
-			tempFUnode = tempFUnode->next;
-		}//Execute k0 instructions
-		tempFUnode = k2FUPointers.head;
-		for (int i = 0; i<k2 && tempFUnode!=NULL; i++){
-			if (tempFUnode->valid == 1){
-				//Decrease time left
-				tempFUnode->age--;
-				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					addROB()
-					removeArray()
+				if (temp0 != NULL){
+					//Go to next element
+					temp0 = temp0->next;
 				}
 			}
-			tempFUnode = tempFUnode->next;
+			//Check if registers are avaialable and functional unit is avaialable
+			if (temp1 && k1FUPointers.size>0 && temp1.src1Tag == -1 && temp1.src2Tag[1]==-1){
+				//Add new node to list
+				functionalNode = createFUNode(temp1, 1)
+				
+				addArray(k1FUPointers, newNode);
+				success = 1;
+			
+				//Go to next element
+				temp = temp1;
+				temp1 = temp1->next;
+				//Remove previous item from array
+				removeArray(&k1QueuePointers, temp);
+			}else{
+				if (temp1 != NULL){
+					//Go to next element
+					temp1 = temp1->next;
+				}
+			}
+			//Check if registers are avaialable and functional unit is avaialable
+			if (temp2 && k2FUPointers.size>0 && temp2.src1Tag == -1 && temp2.src2Tag[1]==-1){
+				//Add new node to list
+				functionalNode = createFUNode(temp2, 1)
+				
+				addArray(k2FUPointers, newNode);
+				success = 1;
+			
+				//Go to next element
+				temp = temp2;
+				temp2 = temp2->next;
+				//Remove previous item from array
+				removeArray(&k2QueuePointers, temp);
+			}else{
+				if (temp2 != NULL){
+					//Go to next element
+					temp2 = temp2->next;
+				}
+			}
+		} while(temp0 != NULL || temp1 != NULL || temp2 != NULL );
+
+		//Execute
+		FUnode* FUnodeCheck;
+		FUnode* tempFUnode;
+		//Execute k0 instructions
+		FUnodeCheck = k0FUPointers.head;
+		while (FUnodeCheck!=NULL){
+			tempFUnode = FUnodeCheck;
+			FUnodeCheck = FUnodeCheck->next;
+			if (FUnodeCheck->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					updateROB(tempFUnode->destTag)
+					removeArray(&k0FUPointers,tempFUnode);
+				}
+			}
+		}
+		//Execute k1 instructions
+		FUnodeCheck = k1FUPointers.head;
+		while (FUnodeCheck!=NULL){
+			tempFUnode = FUnodeCheck;
+			FUnodeCheck = FUnodeCheck->next;
+			if (FUnodeCheck->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					updateROB(tempFUnode->destTag)
+					removeArray(&k1FUPointers,tempFUnode);
+				}
+			}
+		}				
+		FUnodeCheck = k2FUPointers.head;
+		while (FUnodeCheck!=NULL){
+			tempFUnode = FUnodeCheck;
+			FUnodeCheck = FUnodeCheck->next;
+			if (FUnodeCheck->valid == 1){
+				//Decrease time left
+				tempFUnode->age--;
+				//Check if instructions is done
+				if (tempFUnode->age == 0){
+					updateROB(tempFUnode->destTag)
+					removeArray(&k2FUPointers,tempFUnode);
+				}
+			}
 		}
 
 
