@@ -313,30 +313,56 @@ void createNodeforSched(node* dispatchNode, int tag){
 /////////////////////////////////////////////////////////////////////////////////////
 
 ///////////////////////////INSTUCTION FETCH/DECODE///////////////////////////////////
-void readInstructions(){
+
+/*
+* fetchInstructions
+* Fetch Instcutions
+*
+* parameters: 
+* int instuction - number of instructions 
+*
+* returns:
+* int - number of instructions
+*/
+int fetchInstructions(int instruction){
+	//Node of new instruction
+	node* readNode;
+	//Instruction
+	proc_inst_t* p_inst - ;
+	//Flag
 	int readFlag = 1;
-	node* readNode;			//Node for new instructions
+
+	//Allocate memory for isntructions
+	p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
 
 	//Fetch F instructions at a time
 	for (int i = 0; i<f && readFlag; i++){
-		if (arrayStatus(dispatchPointers)!=FULL){
-			//Allocate instruction
-			p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
+
+		if (dispatchPointers.size > 0){		//if there is room in dispatcher queue
+
+			//Read in  instruction
 			readFlag = read_instruction(p_inst);									//fetch instruction
+			
 			//Check if end of file reached
 			if (readFlag){		//If thre is an instruction
 				//Create new node
-				readNode = (node*) malloc(sizeof(node));
-				readNode->line_number = instruction;
-				readNode->p_inst = *p_inst;
+				readNode = createNode(*p_inst, instruction);
 				//Add node to list of instructions
-				addArray(&dispatchPointers, readNode);	//add to dispatch queue
-				instruction++;													//Line number increment
+				addLL(&dispatchPointers, readNode);	//add to dispatch queue
+				//Increment instruction number
+				instruction++;									
 			}
+	
 		}else{
 			break;
 		}
 	}
+
+	//Free memory
+	free(p_inst);
+
+	//Return instruction number
+	return instruction;
 }
 
 /**
@@ -377,10 +403,10 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 //ROB FIFO
 	 ROBPointers = {0,1};
 	 //LL Pointers
-	 dispatchPointers = {0,0,r}; 
-	 k0QueuePointers = {0,0,m*k0,k0};
-	 k1QueuePointers = {0,0,m*k1 ,k1};
-	 k2QueuePointers = {0,0,m*k2, k2};
+	 dispatchPointers = {0, 0, r,    0}; 
+	 k0QueuePointers =  {0, 0, m*k0, k0};
+	 k1QueuePointers =  {0, 0, m*k1 ,k1};
+	 k2QueuePointers =  {0, 0, m*k2, k2};
 
 }
 
