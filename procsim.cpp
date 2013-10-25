@@ -16,12 +16,18 @@ typedef struct _reg{
 } reg;
 
 //Generic node
+typedef struct _CDBbus{
+	int tag; 
+	int reg; 
+} CDBbus;
+
+//Generic node
 typedef struct _node{
 	proc_inst_t p_inst;
 	node *next;
 	node *prev;
 	int line_number;
-	char filler[20]
+	char filler[12]
 } node;
 
 //Structure for scheduling node
@@ -33,6 +39,7 @@ typedef struct _schedNode{
 	int destTag;
 	int src1Tag;
 	int src2Tag;
+	int age;
 } schedNode;
 
 //Structure for functional unit
@@ -44,7 +51,6 @@ typedef struct _FUnode{
 	int destTag;
 	int age;
 	int valid;
-	char filler[8];
 } FUnode;
 
 //Structure for ROB
@@ -60,6 +66,7 @@ typedef struct _arrayPointers{
 	int head;
 	int tail;
 	int size;
+	int inExec;
 } arrayPointers; 
 
 //Initialization Parameters
@@ -89,6 +96,10 @@ arrayPointers k2FUPointers;
 //ROB Table for execution
 ROB *ROBTable;
 arrayPointers ROBPointers; 
+
+//array to represent CDB
+CDBbus* CDB;
+int CDBsize = 0;
 
 int arrayStatus(arrayPointers queuePointers){
 	if((queuePointers.tail-queuePointers.head)==1){
@@ -127,11 +138,6 @@ void updateROB(int index){
 }
 
 int removeROB(){
-	//Fix register file
-	if (regFile[ROBTable[ROBPointers.head].dest] == ROBPointers.head){
-		regFile[ROBTable[ROBPointers.head].dest] = -1;
-	}
-
 	//Fix ROB queue
 	ROBPointers.head = (ROBPointers.head+1)%r;
 
@@ -243,6 +249,7 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Allocate array
 	 ROBTable = (ROB*) malloc(r*sizeof(ROB));
+	 CDB = (CDBbus *) maclloc(r*sizeof(CDBbus));
 
 	 //Initialize pointers
 	 dispatchPointers = {0,0,r}; 
@@ -272,7 +279,8 @@ void run_proc(proc_stats_t* p_stats) {
 	int dispatcherFlag = 1;
 	//SchedulerFlag
 	int schedFlag = 1; 
-
+	//State update flag
+	int stateUpdate = 1;
 	//line number
 	int instruction = 1;
 	int cycle = 0;
@@ -468,7 +476,8 @@ void run_proc(proc_stats_t* p_stats) {
 				tempFUnode->age--;
 				//Check if instructions is done
 				if (tempFUnode->age == 0){
-					updateROB(tempFUnode->destTag)
+					CDB[CDBsize].tag = tempFUnode->destTag;
+					CDB[CDBsize++].reg = tempFUnode->p_inst.dest;					
 					removeArray(&k2FUPointers,tempFUnode);
 				}
 			}
@@ -476,10 +485,28 @@ void run_proc(proc_stats_t* p_stats) {
 
 
 		//Commit
-		for (){
-			removeROB()
-			update reg file
-			update scheduler
+		//update the ROB			
+		for (int i= 0; i < CDBsize; i++){
+			updateROB(CDB[i].tag);
+		}
+
+		//Update register file
+		for (int i= 0; i < CDBsize; i++){
+			if (regFile[CDB[i].reg] == CDB[i].tag){
+				regFile[CDB[i].reg] = -1;
+			}
+		}
+
+		int indexROB;
+		for (i = 0; i<r && stateUpdate; i++){
+			indexROB = (ROBPointers.head + i)%r;
+			//check if it is valid and remove if it is
+			if (ROBTable[indexROB].done ==1){
+				remove from scheduler
+				removeROB();
+			}else{		//if not valid, stop removing
+				break;
+			}
 		}
 
 		//Change clock cycle
@@ -499,4 +526,7 @@ void run_proc(proc_stats_t* p_stats) {
  * @p_stats Pointer to the statistics structure
  */
 void complete_proc(proc_stats_t *p_stats) {
+	//Free allocated memory
+	free(CDB);
+	free(ROB);
 }
