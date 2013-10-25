@@ -66,7 +66,7 @@ typedef struct _arrayPointers{
 	int head;
 	int tail;
 	int size;
-	int inExec;
+	int availExec;
 } arrayPointers; 
 
 //Initialization Parameters
@@ -92,6 +92,9 @@ arrayPointers k2QueuePointers;
 arrayPointers k0FUPointers; 
 arrayPointers k1FUPointers; 
 arrayPointers k2FUPointers; 
+schedNode** inK0;
+schedNode** inK1;
+schedNode** inK2;
 
 //ROB Table for execution
 ROB *ROBTable;
@@ -200,6 +203,9 @@ schedNode* createSchedNode(node* dispatchNode, int tag){
 	newNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]];
 	newNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]];
 
+	//Set so not in FU yet
+	newNode->age = -1;
+
 	//Return Data
 	return newNode; 
 }
@@ -250,12 +256,16 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 //Allocate array
 	 ROBTable = (ROB*) malloc(r*sizeof(ROB));
 	 CDB = (CDBbus *) maclloc(r*sizeof(CDBbus));
+	 //Arrays to hold pointers to currently in FU
+	 inK0 = (schedNode**) malloc(k0*sizeof(schedNode*))
+	 inK1 = (schedNode**) malloc(k1*sizeof(schedNode*))
+	 inK2 = (schedNode**) malloc(k2*sizeof(schedNode*))
 
 	 //Initialize pointers
 	 dispatchPointers = {0,0,r}; 
-	 k0QueuePointers = {0,0,m*k0};
-	 k1QueuePointers = {0,0,m*k1};
-	 k2QueuePointers = {0,0,m*k2};
+	 k0QueuePointers = {0,0,m*k0,k0};
+	 k1QueuePointers = {0,0,m*k1 ,k1};
+	 k2QueuePointers = {0,0,m*k2, k2};
 	 k0FUPointers = {0,0,k0};
 	 k1FUPointers = {0,0,k1};
 	 k2FUPointers = {0,0,k2};
@@ -291,6 +301,9 @@ void run_proc(proc_stats_t* p_stats) {
 
 	//Pipeline
 	while(flag){
+		//////////////FIRST HALF OF CYCLE///////////////////////
+
+		//////////////SECOND HALF OF CYCLE///////////////////////
 
 		//Read Instructions
 		node* readNode;		//Node for new instructions
@@ -376,18 +389,19 @@ void run_proc(proc_stats_t* p_stats) {
 		do{
 
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp0 && k0FUPointers.size>0 && temp0.src1Tag == -1 && temp0.src2Tag[1]==-1){
+			if (temp0 && k0QueuePointers.availExec>0 && temp0.src1Tag == -1 && temp0.src2Tag[1]==-1){
 				//Add new node to list
-				functionalNode = createFUNode(temp0, 1)
+				k0QueuePointers.availExec--;
+				temp0.age  = 1;
 				
-				addArray(k0FUPointers, newNode);
-				success = 1;
-			
+				for (int j = 0; j<k0; j++){
+					if (ink0[j]==NULL){
+						ink0[j] = temp0;
+					}
+				}
+
 				//Go to next element
-				temp = temp0;
 				temp0 = temp0->next;
-				//Remove previous item from array
-				removeArray(&k0QueuePointers, temp);
 			}else{
 				if (temp0 != NULL){
 					//Go to next element
@@ -395,15 +409,15 @@ void run_proc(proc_stats_t* p_stats) {
 				}
 			}
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp1 && k1FUPointers.size>0 && temp1.src1Tag == -1 && temp1.src2Tag[1]==-1){
-				//Add new node to list
-				functionalNode = createFUNode(temp1, 1)
+			if (temp1 && k1QueuePointers.availExec>0 && temp1.src1Tag == -1 && temp1.src2Tag[1]==-1){
+				k1QueuePointers.availExec--;
+				temp1.age  = 1;
 				
-				addArray(k1FUPointers, newNode);
-				success = 1;
-			
-				//Go to next element
-				temp = temp1;
+				for (int j = 0; j<k0; j++){
+					if (ink1[j]==NULL){
+						ink1[j] = temp1;
+					}
+				}
 				temp1 = temp1->next;
 				//Remove previous item from array
 				removeArray(&k1QueuePointers, temp);
@@ -414,15 +428,15 @@ void run_proc(proc_stats_t* p_stats) {
 				}
 			}
 			//Check if registers are avaialable and functional unit is avaialable
-			if (temp2 && k2FUPointers.size>0 && temp2.src1Tag == -1 && temp2.src2Tag[1]==-1){
-				//Add new node to list
-				functionalNode = createFUNode(temp2, 1)
+			if (temp2 && k2QueuePointers.availExec>0 && temp2.src1Tag == -1 && temp2.src2Tag[1]==-1){
+				k2QueuePointers.availExec--;
+				temp2.age  = 1;
 				
-				addArray(k2FUPointers, newNode);
-				success = 1;
-			
-				//Go to next element
-				temp = temp2;
+				for (int j = 0; j<k0; j++){
+					if (ink2[j]==NULL){
+						ink2[j] = temp2;
+					}
+				}				
 				temp2 = temp2->next;
 				//Remove previous item from array
 				removeArray(&k2QueuePointers, temp);
@@ -439,46 +453,48 @@ void run_proc(proc_stats_t* p_stats) {
 		FUnode* tempFUnode;
 		//Execute k0 instructions
 		FUnodeCheck = k0FUPointers.head;
-		while (FUnodeCheck!=NULL){
-			tempFUnode = FUnodeCheck;
-			FUnodeCheck = FUnodeCheck->next;
-			if (FUnodeCheck->valid == 1){
+		for (int i= 0; i<k0; i++){
+			if (ink0[j] != NULL){
 				//Decrease time left
-				tempFUnode->age--;
+				(*(ink0[j]))->age--;
 				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					updateROB(tempFUnode->destTag)
-					removeArray(&k0FUPointers,tempFUnode);
+				if ((*(ink0[j]))->age == 0){
+					CDB[CDBsize].tag = (*(ink0[j]))->destTag;
+					CDB[CDBsize++].reg = (*(ink0[j]))->p_inst.dest;
+					//Fix up FU array					
+					(*(ink0[j]))->age = -1;
+					ink0[j] = NULL;
 				}
 			}
 		}
 		//Execute k1 instructions
 		FUnodeCheck = k1FUPointers.head;
-		while (FUnodeCheck!=NULL){
-			tempFUnode = FUnodeCheck;
-			FUnodeCheck = FUnodeCheck->next;
-			if (FUnodeCheck->valid == 1){
+		for (int i= 0; i<k1; i++){
+			if (ink1[j] != NULL){
 				//Decrease time left
-				tempFUnode->age--;
+				(*(ink1[j]))->age--;
 				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					updateROB(tempFUnode->destTag)
-					removeArray(&k1FUPointers,tempFUnode);
+				if ((*(ink0[j]))->age == 0){
+					CDB[CDBsize].tag = (*(ink0[j]))->destTag;
+					CDB[CDBsize++].reg = (*(ink0[j]))->p_inst.dest;					
+					//Fix up FU array					
+					(*(ink1[j]))->age = -1;
+					ink1[j] = NULL;
 				}
 			}
 		}				
 		FUnodeCheck = k2FUPointers.head;
-		while (FUnodeCheck!=NULL){
-			tempFUnode = FUnodeCheck;
-			FUnodeCheck = FUnodeCheck->next;
-			if (FUnodeCheck->valid == 1){
+		for (int i= 0; i<k2; i++){
+			if (ink2[j] != NULL){
 				//Decrease time left
-				tempFUnode->age--;
+				(*(ink2[j]))->age--;
 				//Check if instructions is done
-				if (tempFUnode->age == 0){
-					CDB[CDBsize].tag = tempFUnode->destTag;
-					CDB[CDBsize++].reg = tempFUnode->p_inst.dest;					
-					removeArray(&k2FUPointers,tempFUnode);
+				if ((*(ink0[j]))->age == 0){
+					CDB[CDBsize].tag = (*(ink0[j]))->destTag;
+					CDB[CDBsize++].reg = (*(ink0[j]))->p_inst.dest;					
+					//Fix up FU array					
+					(*(ink2[j]))->age = -1;
+					ink2[j] = NULL;
 				}
 			}
 		}
