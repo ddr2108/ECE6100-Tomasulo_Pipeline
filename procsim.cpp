@@ -21,17 +21,15 @@ typedef struct _CDBbus{
 	int reg; 
 } CDBbus;
 
-//Generic node
+//Pointers for Linked List 
+typedef struct _llPointers{
+	node* head;
+	node* tail;
+	int size;
+	int availExec;
+} llPointers; 
+//Linked list node
 typedef struct _node{
-	proc_inst_t p_inst;
-	node *next;
-	node *prev;
-	int line_number;
-	char filler[12]
-} node;
-
-//Structure for scheduling node
-typedef struct _schedNode{
 	proc_inst_t p_inst;
 	schedNode *next;
 	schedNode *prev;
@@ -40,19 +38,13 @@ typedef struct _schedNode{
 	int src1Tag;
 	int src2Tag;
 	int age;
-} schedNode;
+} node;
 
-//Structure for functional unit
-typedef struct _FUnode{
-	proc_inst_t p_inst;
-	FUnode *next;
-	FUnode *prev;
-	int line_number;
-	int destTag;
-	int age;
-	int valid;
-} FUnode;
-
+//Pointers for circular FIFO array
+typedef struct _FIFOPointers{
+	int head;
+	int tail;
+} FIFOPointers; 
 //Structure for ROB
 typedef struct _ROB{
 	proc_inst_t p_inst;
@@ -60,14 +52,6 @@ typedef struct _ROB{
 	int destTag;
 	int done;
 } ROB;
-
-//Pointers for circular FIFO array
-typedef struct _arrayPointers{
-	int head;
-	int tail;
-	int size;
-	int availExec;
-} arrayPointers; 
 
 //Initialization Parameters
 uint64_t r = 0; 
@@ -81,31 +65,39 @@ uint64_t m = 0;
 reg regFile[32];		
 
 //Dispatcher
-arrayPointers dispatchPointers; 
+llPointers dispatchPointers; 
 
 //Scheudler
-arrayPointers k0QueuePointers; 
-arrayPointers k1QueuePointers; 
-arrayPointers k2QueuePointers; 
+llPointers k0QueuePointers; 
+llPointers k1QueuePointers; 
+llPointers k2QueuePointers; 
 
 //Execute
-arrayPointers k0FUPointers; 
-arrayPointers k1FUPointers; 
-arrayPointers k2FUPointers; 
-schedNode** inK0;
-schedNode** inK1;
-schedNode** inK2;
+node** inK0;
+node** inK1;
+node** inK2;
 
 //ROB Table for execution
 ROB *ROBTable;
-arrayPointers ROBPointers; 
+FIFOPointers ROBPointers; 
 
 //array to represent CDB
 CDBbus* CDB;
 int CDBsize = 0;
 
-int arrayStatus(arrayPointers queuePointers){
-	if((queuePointers.tail-queuePointers.head)==1){
+
+/*
+* ROBStatus
+* Returns status of the ROB
+*
+* parameters: 
+* none
+*
+* returns:
+* int - status
+*/
+int ROBStatus(){
+	if((ROBPointers.tail-queuePointers.head)==1){
 		return EMPTY;
 	}else if (queuePointers.tail==0 && queuePointers.head==(r-1)){
 		return EMPTY; 
@@ -226,6 +218,32 @@ FUnode* createFUNode(schedNode* scheduledhNode, int age){
 	return newNode; 
 }
 
+void readInstructions(){
+	int readFlag = 1;
+	node* readNode;			//Node for new instructions
+
+	//Fetch F instructions at a time
+	for (int i = 0; i<f && readFlag; i++){
+		if (arrayStatus(dispatchPointers)!=FULL){
+			//Allocate instruction
+			p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
+			readFlag = read_instruction(p_inst);									//fetch instruction
+			//Check if end of file reached
+			if (readFlag){		//If thre is an instruction
+				//Create new node
+				readNode = (node*) malloc(sizeof(node));
+				readNode->line_number = instruction;
+				readNode->p_inst = *p_inst;
+				//Add node to list of instructions
+				addArray(&dispatchPointers, readNode);	//add to dispatch queue
+				instruction++;													//Line number increment
+			}
+		}else{
+			break;
+		}
+	}
+}
+
 /**
  * Subroutine for initializing the processor. You many add and initialize any global or heap
  * variables as needed.
@@ -283,8 +301,6 @@ void run_proc(proc_stats_t* p_stats) {
 	//Flag to keep program running
 	int flag = 1;
 
-	//Reading flags
-	int readFlag = 1;
 	//Dispatcher flags
 	int dispatcherFlag = 1;
 	//SchedulerFlag
@@ -303,30 +319,10 @@ void run_proc(proc_stats_t* p_stats) {
 	while(flag){
 		//////////////FIRST HALF OF CYCLE///////////////////////
 
-		//////////////SECOND HALF OF CYCLE///////////////////////
-
-		//Read Instructions
-		node* readNode;		//Node for new instructions
-		//Fetch F instructions at a time
-		for (int i = 0; i<f && readFlag; i++){
-			if (arrayStatus(dispatchPointers)!=FULL){
-				//Allocate instruction
-				p_inst = (proc_inst_t*) malloc(sizeof(proc_inst_t));
-				readFlag = read_instruction(p_inst);									//fetch instruction
-				//Check if end of file reached
-				if (readFlag){		//If thre is an instruction
-					//Create new node
-					readNode = (node*) malloc(sizeof(node));
-					readNode->line_number = instruction;
-					readNode->p_inst = *p_inst;
-					//Add node to list of instructions
-					addArray(&dispatchPointers, readNode);	//add to dispatch queue
-					instruction++;													//Line number increment
-				}
-			}else{
-				break;
-			}
-		}
+		//////////////SECOND HALF OF CYCLE//////////////////////
+		readInstructions();
+		////////////////////////////////////////////////////////
+		
 
 		//Dispatcher
 		//Reset dispatcherFlag
@@ -500,6 +496,51 @@ void run_proc(proc_stats_t* p_stats) {
 		}
 
 
+		//Ordering of CDB
+		CDB tempCDB;
+		for(int i=0; i<CDBsize; i++){
+          	for(int j=i; j<CDBsize; j++){
+            	if(CDB[i] > CDB[j]){
+               		tempCDB=CDB[i];
+               		CDB[i]=CDB[j];
+               		CDB[j]=tempCDB;
+               	}
+           	}
+     	}
+
+     	//Update the scheduler
+     	schedNode* updateNode = k0FUPointers.head;
+     	while (updateNode!=NULL){
+     		for (int j = 0;j<CDBsize; j++){
+     			if(CDB[j].tag==updateNode->src1Tag){
+     				updateNode->src1Tag = -1;
+     			}else if (CDB[j].tag==updateNode->src2Tag){
+     				updateNode->src2Tag = -1;
+     			}
+     		}
+     		updateNode = updateNode->next;
+     	}
+		schedNode* updateNode = k1FUPointers.head;
+     	while (updateNode!=NULL){
+     		for (int j = 0;j<CDBsize; j++){
+     			if(CDB[j].tag==updateNode->src1Tag){
+     				updateNode->src1Tag = -1;
+     			}else if (CDB[j].tag==updateNode->src2Tag){
+     				updateNode->src2Tag = -1;
+     			}
+     		}
+     		updateNode = updateNode->next;
+     	}schedNode* updateNode = k2FUPointers.head;
+     	while (updateNode!=NULL){
+     		for (int j = 0;j<CDBsize; j++){
+     			if(CDB[j].tag==updateNode->src1Tag){
+     				updateNode->src1Tag = -1;
+     			}else if (CDB[j].tag==updateNode->src2Tag){
+     				updateNode->src2Tag = -1;
+     			}
+     		}
+     		updateNode = updateNode->next;
+     	}
 		//Commit
 		//update the ROB			
 		for (int i= 0; i < CDBsize; i++){
