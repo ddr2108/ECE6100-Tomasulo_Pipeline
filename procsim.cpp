@@ -2,16 +2,21 @@
 #include <stdio.h>
 #include "procsim.hpp"
 
-#define FALSE -1
-#define TRUE  1
+//Boolean
+#define FALSE 	-1
+#define TRUE  	1
 
-#define FULL  2
-#define EMPTY  3
-#define HAS_ROOM  4
+//Array Status
+#define FULL  		2
+#define EMPTY  		3
+#define HAS_ROOM  	4
+
+//Field Status
+#define UNINITIALIZED -2
+#define READY         -1
 
 //Register structure
 typedef struct _reg{
-	int ready;
 	int tag;
 } reg;
 
@@ -30,9 +35,9 @@ typedef struct _llPointers{
 } llPointers; 
 //Linked list node
 typedef struct _node{
-	proc_inst_t p_inst;
 	schedNode *next;
 	schedNode *prev;
+	proc_inst_t p_inst;
 	int line_number;
 	int destTag;
 	int src1Tag;
@@ -85,9 +90,11 @@ FIFOPointers ROBPointers;
 CDBbus* CDB;
 int CDBsize = 0;
 
-
+/////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////ROB MANIPULATION//////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
 /*
-* ROBStatus
+* statusROB
 * Returns status of the ROB
 *
 * parameters: 
@@ -96,22 +103,32 @@ int CDBsize = 0;
 * returns:
 * int - status
 */
-int ROBStatus(){
-	if((ROBPointers.tail-queuePointers.head)==1){
+int statusROB(){
+	if((ROBPointers.tail-ROBPointers.head)==1){
 		return EMPTY;
-	}else if (queuePointers.tail==0 && queuePointers.head==(r-1)){
+	}else if (ROBPointers.tail==0 && ROBPointers.head==(r-1)){
 		return EMPTY; 
-	}else if(queuePointers.head == queuePointers.tail){
+	}else if(ROBPointers.head == ROBPointers.tail){
 		return FULL;
 	}else{
 		return HAS_ROOM;
 	}
 }
 
+/*
+* addROB
+* Adds element to ROB
+*
+* parameters: 
+* node* dispatchNode - the node being added
+*
+* returns:
+* int - tag into ROB, -1 if no room
+*/
 int addROB(node* dispatchNode){
 	int tag;		//tag added to 
 
-	if (ROBPointers.tail!=ROBPointers.head){
+	if (ROBStatus!=FULL){			//if there is room in the ROB
 		//Put item into ROB table
 		ROBTable[ROBPointers.tail].line_number = dispatchNode->line_number;
 		ROBTable[ROBPointers.tail].destTag = ROBPointers.tail;
@@ -128,32 +145,70 @@ int addROB(node* dispatchNode){
 	return tag;
 }
 
+/*
+* updateROB
+* updates ROB entry to done
+*
+* parameters: 
+* int index - index that has completed
+*
+* returns:
+* none
+*/
 void updateROB(int index){
+	//Mark as complete
 	ROBTable[index].done = 1; 
 }
 
-int removeROB(){
+/*
+* removeROB
+* Removes head element from ROB
+*
+* parameters: 
+* none
+*
+* returns:
+* none
+*/
+void removeROB(){
 	//Fix ROB queue
 	ROBPointers.head = (ROBPointers.head+1)%r;
-
-	return TRUE;
 }
 
-int addArray(arrayPointers* arrayPointersIn, node* nextNode){
+/////////////////////////////////////////////////////////////////////////////////////
+///////////////////////LINKED LIST MANIPULATION//////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
+
+/*
+* addLL
+* Adds element to tail of linked list
+*
+* parameters: 
+* llPointers* pointersIn - pointers to linked list
+* node* nextNode         - node to add
+*
+* returns:
+* int - success
+*/
+int addLL(llPointers* pointersIn, node* nextNode){
 	//Add new element if there is enough room
-	if (arrayPointersIn->size>0){
-		arrayPointersIn->size--;	//Decrease room
-		//Fix pointers
-		nextNode->prev = arrayPointersIn->tail;
+	if (pointersIn->size>0){
+		pointersIn->size--;	//Decrease room
+
+		//Fix next and prev pointers
+		nextNode->prev = pointersIn->tail;
 		nextNode->next = NULL;
-		if (arrayPointersIn->tail != NULL){
-			arrayPointersIn->tail->next = nextNode;
+
+		//Fix existing tail and head
+		if (pointersIn->tail != NULL){
+			pointersIn->tail->next = nextNode;
 		}else{		//means it was empty before
 			//Fix array pointers
-			arrayPointersIn->head = nextNode;
+			pointersIn->head = nextNode;
 		}
-		//Fix array pointers
-		arrayPointersIn->tail = nextNode;
+
+		//Fix tail pointer
+		pointersIn->tail = nextNode;
 	}else{
 		return FALSE;
 	}
@@ -161,63 +216,103 @@ int addArray(arrayPointers* arrayPointersIn, node* nextNode){
 	return TRUE;
 }
 
-void removeArray(arrayPointers* arrayPointersIn, node* deleteNode){
+/*
+* removeLL
+* Removes element from linked list
+*
+* parameters: 
+* llPointers* pointersIn - pointers to linked list
+* node* deleteNode       - node to delete
+* int freeMem			 - free memory
+*
+* returns:
+* none
+*/
+void removeLL(llPointers* pointersIn, node* deleteNode, int freeMem){
 	if (deleteNode->prev==NULL){			//Head element
 		if (deleteNode->next==NULL){		//Special case where there is only 1 element
-			arrayPointersIn->head = NULL;
-			arrayPointersIn->tail = NULL;
+			pointersIn->head = NULL;
+			pointersIn->tail = NULL;
 		}else{
-			arrayPointersIn->head = deleteNode->next;
-			arrayPointersIn->head->prev = NULL;
+			pointersIn->head = deleteNode->next;
+			pointersIn->head->prev = NULL;
 		}
 	}else if (deleteNode->next==NULL){		//Tail element
-		arrayPointersIn->tail = deleteNode->prev;
-		arrayPointersIn->tail->next = NULL;
+		pointersIn->tail = deleteNode->prev;
+		pointersIn->tail->next = NULL;
 	} else{									//Element in middle
-		arrayPointersIn->prev->next = deleteNode->next;
-		arrayPointersIn->next->prev = deleteNode->prev;		
+		pointersIn->prev->next = deleteNode->next;
+		pointersIn->next->prev = deleteNode->prev;		
 	}
 	//Add room to linked list
-	arrayPointersIn->size++;
+	pointersIn->size++;
 
-	free(deleteNode);		//Free allocated memory
+	//Free the node if desired
+	if (freeMem==TRUE){
+		free(deleteNode);		//Free allocated memory
+	}
 }
 
-schedNode* createSchedNode(node* dispatchNode, int tag){
-	schedNode* newNode = (schedNode*) malloc(sizeof(schedNode));	//Create a new node
+/*
+* createNode
+* Creates node for dispatcher
+*
+* parameters: 
+* int line_number    - line number of instruction
+* proc_inst_t p_inst - instuction of the node
+*
+* returns:
+* node* - node that has been created
+*/
+node* createNode(proc_inst_t p_inst, int line_number){
+	node* newNode = (node*) malloc(sizeof(node));	//Create a new node
 
 	//Copy over data
-	newNode->p_inst = dispatchNode->p_inst;
-	newNode->line_number = dispatchNode->line_number;
-	newNode->destTag = tag;
+	newNode->p_inst = p_inst;
+	newNode->line_number = line_number;
 
 	//Add valididty data
-	newNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]];
-	newNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]];
+	newNode->destTag = UNINITIALIZED;
+	newNode->src1Tag = UNINITIALIZED;
+	newNode->src2Tag = UNINITIALIZED;
+	newNode->age = UNINITIALIZED;
+
+	//Return Data
+	return newNode; 
+}
+
+/*
+* createNodeforSched
+* Modifies node for use in scheduler
+*
+* parameters: 
+* node* dispatchNode - node to be modified
+* int tag 			 - tag of the node 
+*
+* returns:
+* none
+*/
+void createNodeforSched(node* dispatchNode, int tag){
+
+	//Copy over data
+	dispatchNode->destTag = tag;
+
+	//Add valididty data
+	dispatchNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]];
+	dispatchNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]];
 
 	//Set so not in FU yet
-	newNode->age = -1;
+	newNode->age = READY;
 
 	//Return Data
 	return newNode; 
 }
 
-FUnode* createFUNode(schedNode* scheduledhNode, int age){
-	FUnode* newNode = (FUnode*) malloc(sizeof(FUnode));	//Create a new node
+/////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////PIPELINE INSTUCTIONS//////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////
 
-	//Copy over data
-	newNode->p_inst = scheduledhNode->p_inst;
-	newNode->line_number = scheduledhNode->line_number;
-	newNode->destTag = scheduledhNode->destTag;
-
-	//Add valididty data
-	newNode->age = age;
-	newNode->valid = 1;
-
-	//Return Data
-	return newNode; 
-}
-
+///////////////////////////INSTUCTION FETCH/DECODE///////////////////////////////////
 void readInstructions(){
 	int readFlag = 1;
 	node* readNode;			//Node for new instructions
@@ -267,27 +362,26 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Initialize reg array
 	 for (int i = 0; i<32; i++){
-	 	regFile[i].ready = 0;
-	 	regFile[i].tag = 0;
+	 	regFile[i].tag = READY;
 	 }
 
 	 //Allocate array
-	 ROBTable = (ROB*) malloc(r*sizeof(ROB));
-	 CDB = (CDBbus *) maclloc(r*sizeof(CDBbus));
+	 ROBTable = (ROB*) malloc(r*sizeof(ROB));			//ROB
+	 CDB = (CDBbus *) maclloc(r*sizeof(CDBbus));		//CDB
 	 //Arrays to hold pointers to currently in FU
-	 inK0 = (schedNode**) malloc(k0*sizeof(schedNode*))
-	 inK1 = (schedNode**) malloc(k1*sizeof(schedNode*))
-	 inK2 = (schedNode**) malloc(k2*sizeof(schedNode*))
+	 ink0 = (node**) malloc(k0*sizeof(node*))
+	 ink1 = (node**) malloc(k1*sizeof(node*))
+	 ink2 = (node**) malloc(k2*sizeof(node*))
 
 	 //Initialize pointers
+	 //ROB FIFO
+	 ROBPointers = {0,1};
+	 //LL Pointers
 	 dispatchPointers = {0,0,r}; 
 	 k0QueuePointers = {0,0,m*k0,k0};
 	 k1QueuePointers = {0,0,m*k1 ,k1};
 	 k2QueuePointers = {0,0,m*k2, k2};
-	 k0FUPointers = {0,0,k0};
-	 k1FUPointers = {0,0,k1};
-	 k2FUPointers = {0,0,k2};
-	 ROBPointers = {0,0,r};
+
 }
 
 /**
@@ -586,4 +680,7 @@ void complete_proc(proc_stats_t *p_stats) {
 	//Free allocated memory
 	free(CDB);
 	free(ROB);
+	free(ink0);
+	free(ink1);
+	free(ink2);
 }
