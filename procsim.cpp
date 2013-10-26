@@ -1016,7 +1016,7 @@ void run_proc(proc_stats_t* p_stats) {
 	instruction = 0;
 
 	//Pipeline
-	while(0){
+	while(flag){
 		//////////////FIRST HALF OF CYCLE///////////////////////
 		//Dispatch
 		dispatchInstructions();
