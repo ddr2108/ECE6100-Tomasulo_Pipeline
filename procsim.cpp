@@ -216,6 +216,8 @@ void removeROB(){
 	//Print stats
 	printROB(ROBPointers.head);
 
+	ROBTable[ROBPointers.head].done = 0; 
+
 	//Fix ROB queue
 	ROBPointers.head = (ROBPointers.head+1)%r;
 	ROBPointers.size--;
@@ -225,7 +227,7 @@ void removeROB(){
 ///////////////////////LINKED LIST MANIPULATION//////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////
 /*
-* updateNodefromROB
+* updateROBfromNode
 * Puts infor in node to ROB
 *
 * parameters: 
@@ -234,7 +236,8 @@ void removeROB(){
 * returns:
 * none
 */
-void updateNodefromROB(node* update){
+void updateROBfromNode(node* update){
+	ROBTable[update->destTag].line_number = update->line_number;
 	ROBTable[update->destTag].fetch = update->fetch;
 	ROBTable[update->destTag].disp = update->disp;
 	ROBTable[update->destTag].sched = update->sched;
@@ -432,6 +435,7 @@ void fetchInstructions(){
 			
 			//Check if end of file reached
 			if (readFlag==TRUE){		//If thre is an instruction
+				instruction++;									
 				//Create new node
 				readNode = createNode(*p_inst, instruction);
 				readNode->fetch = cycle;
@@ -439,7 +443,6 @@ void fetchInstructions(){
 				//Add node to list of instructions
 				addLL(&dispatchPointers, readNode);	//add to dispatch queue
 				//Increment instruction number
-				instruction++;									
 			}else{
 				readDoneFlag = 0;
 			}
@@ -484,7 +487,7 @@ void dispatchInstructions(){
 		instructionDispatch = dispatchNode->p_inst; 	//Get instruction
 
 		//add to correct scheduling queue and ROB and remove from dispatcher
-		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 )&& statusLL(k0QueuePointers)!=FULL){
+		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 ) && statusLL(k0QueuePointers)!=FULL){
 			if (statusROB()!=FULL){
 				//Add new data	
 				createNodeforSched(dispatchNode);
@@ -834,6 +837,7 @@ void incrementTimer(){
 				CDB[CDBsize].FU = 0;
 				CDB[CDBsize].line_number = inK0[j]->line_number;
 				CDB[CDBsize++].reg = inK0[j]->p_inst.dest_reg;
+			//	printf("done - tag:%d, line:%d, cycle:%d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].line_number, cycle);
 				//Add cycle info
 				inK0[j]->state = cycle+1;
 				//Fix up FU array
@@ -853,6 +857,8 @@ void incrementTimer(){
 				CDB[CDBsize].FU = 1;
 				CDB[CDBsize].line_number = inK1[j]->line_number;
 				CDB[CDBsize++].reg = inK1[j]->p_inst.dest_reg;	
+			//	printf("done - tag:%d, line:%d, cycle:%d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].line_number, cycle);
+
 				//Add cycle info
 				inK1[j]->state = cycle+1;				
 				//Fix up FU array					
@@ -872,6 +878,8 @@ void incrementTimer(){
 				CDB[CDBsize].FU = 2;
 				CDB[CDBsize].line_number = inK2[j]->line_number;
 				CDB[CDBsize++].reg = inK2[j]->p_inst.dest_reg;
+								printf("%d, %d, %d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].FU, CDB[CDBsize-1].line_number);
+
 				//Add cycle info
 				inK2[j]->state = cycle+1;					
 				//Fix up FU array					
@@ -954,6 +962,7 @@ void executeInstructions2(){
 */
 void markROBDone(){
 	for (int i= 0; i < CDBsize; i++){
+		//printf("update - tag:%d cycle:%d\n", CDB[i].tag, cycle);
 		updateROB(CDB[i].tag);
 	}
 }
@@ -979,7 +988,7 @@ void removeScheduler(){
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
  					updateNode->retire = cycle;
- 					updateNodefromROB(updateNode);
+ 					updateROBfromNode(updateNode);
  					removeLL(&k0QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -992,7 +1001,7 @@ void removeScheduler(){
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
  					updateNode->retire = cycle;
- 					updateNodefromROB(updateNode);
+ 					updateROBfromNode(updateNode);
  					removeLL(&k1QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -1005,7 +1014,7 @@ void removeScheduler(){
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
  					updateNode->retire = cycle;
- 					updateNodefromROB(updateNode);
+ 					updateROBfromNode(updateNode);
  					removeLL(&k2QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -1029,12 +1038,15 @@ void removeScheduler(){
 */
 void retireInstructions(){
 	int indexROB;
-
+	int initHead = ROBPointers.head;
+	int initSize = ROBPointers.size;
 	//Retire as many instructions as possible
-	for (int i = 0; i<ROBPointers.size; i++){
-		indexROB = (ROBPointers.head + i)%r;
+	for (int i = 0; i<initSize; i++){
+		indexROB = (initHead + i)%r;
 		//check if it is valid and remove if it is
 		if (ROBTable[indexROB].done ==1){
+		//			printf("retire - tag:%d cycle:%d\n", indexROB, cycle);
+
 			removeROB();
 		}else{		//if not done, stop removing
 			break;
@@ -1135,13 +1147,15 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
  */
 void run_proc(proc_stats_t* p_stats) {
 	//Cycle timer
-	cycle = 1;
+	cycle = 0;
 
 	//Line number
-	instruction = 1;
+	instruction = 0;
 
 	//Pipeline
 	while(flag){
+		//Change clock cycle
+		cycle++;
 
 		//////////////FIRST HALF OF CYCLE///////////////////////
 		//SU1
@@ -1162,9 +1176,6 @@ void run_proc(proc_stats_t* p_stats) {
 		//SCHED1
 		scheduleInstructions2();
 		////////////////////////////////////////////////////////
-
-		//Change clock cycle
-		cycle++;
 	}
 }
 
