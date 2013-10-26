@@ -106,7 +106,9 @@ FIFOPointers ROBPointers;
 
 //array to represent CDB
 CDBbus* CDB;
+CDBbus* tempCDB;
 int CDBsize = 0;
+int tempCDBsize = 0;
 
 //Holds line number
 int instruction;
@@ -525,6 +527,8 @@ void dispatchInstructions(){
 
 				//Add to queue linked list
 				addLL(&k1QueuePointers, dispatchNodeTemp);	
+				//printf("%d %d, %d\n", dispatchNodeTemp->line_number, k1QueuePointers.size, cycle);
+
 			}else{
 				//if ROB full, stop dispatch
 				dispatcherFlag = FALSE;
@@ -648,7 +652,8 @@ void scheduleInstructionstoFU(){
 			//Add new node to list
 			k0QueuePointers.availExec--;
 			temp0->age  = 1;
-	
+					//printf("start:%d %d %d\n", temp0->line_number, cycle, k0QueuePointers.availExec);
+
 			//Add cycle info
 			temp0->exec = cycle+1;
 
@@ -784,6 +789,7 @@ void removeFU(){
 			//Check if instructions is done
 			if (inK0[j]->age == DONE){
 				k0QueuePointers.availExec++;
+				//printf("finish:%d %d %d\n", inK0[j]->line_number, cycle, k0QueuePointers.availExec);
 				inK0[j] = NULL;
 			}
 		}
@@ -824,7 +830,7 @@ void removeFU(){
 */
 void incrementTimer(){
 	//Reset CDB bus
-	CDBsize = 0;
+	tempCDBsize = 0;
 
 	//Execute k0 instructions
 	for (int j= 0; j<k0; j++){
@@ -833,11 +839,10 @@ void incrementTimer(){
 			inK0[j]->age--;
 			//Check if instructions is done
 			if (inK0[j]->age == 0){
-				CDB[CDBsize].tag = inK0[j]->destTag;
-				CDB[CDBsize].FU = 0;
-				CDB[CDBsize].line_number = inK0[j]->line_number;
-				CDB[CDBsize++].reg = inK0[j]->p_inst.dest_reg;
-			//	printf("done - tag:%d, line:%d, cycle:%d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].line_number, cycle);
+				tempCDB[tempCDBsize].tag = inK0[j]->destTag;
+				tempCDB[tempCDBsize].FU = 0;
+				tempCDB[tempCDBsize].line_number = inK0[j]->line_number;
+				tempCDB[tempCDBsize++].reg = inK0[j]->p_inst.dest_reg;
 				//Add cycle info
 				inK0[j]->state = cycle+1;
 				//Fix up FU array
@@ -853,11 +858,10 @@ void incrementTimer(){
 			inK1[j]->age--;
 			//Check if instructions is done
 			if (inK1[j]->age == 0){
-				CDB[CDBsize].tag = inK1[j]->destTag;
-				CDB[CDBsize].FU = 1;
-				CDB[CDBsize].line_number = inK1[j]->line_number;
-				CDB[CDBsize++].reg = inK1[j]->p_inst.dest_reg;	
-			//	printf("done - tag:%d, line:%d, cycle:%d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].line_number, cycle);
+				tempCDB[tempCDBsize].tag = inK1[j]->destTag;
+				tempCDB[tempCDBsize].FU = 1;
+				tempCDB[tempCDBsize].line_number = inK1[j]->line_number;
+				tempCDB[tempCDBsize++].reg = inK1[j]->p_inst.dest_reg;	
 
 				//Add cycle info
 				inK1[j]->state = cycle+1;				
@@ -874,12 +878,10 @@ void incrementTimer(){
 			inK2[j]->age--;
 			//Check if instructions is done
 			if (inK2[j]->age == 0){
-				CDB[CDBsize].tag = inK2[j]->destTag;
-				CDB[CDBsize].FU = 2;
-				CDB[CDBsize].line_number = inK2[j]->line_number;
-				CDB[CDBsize++].reg = inK2[j]->p_inst.dest_reg;
-								printf("%d, %d, %d\n", CDB[CDBsize-1].tag, CDB[CDBsize-1].FU, CDB[CDBsize-1].line_number);
-
+				tempCDB[tempCDBsize].tag = inK2[j]->destTag;
+				tempCDB[tempCDBsize].FU = 2;
+				tempCDB[tempCDBsize].line_number = inK2[j]->line_number;
+				tempCDB[tempCDBsize++].reg = inK2[j]->p_inst.dest_reg;
 				//Add cycle info
 				inK2[j]->state = cycle+1;					
 				//Fix up FU array					
@@ -890,6 +892,23 @@ void incrementTimer(){
 
 }
 
+/*
+* exchangeCDB
+* Replace CDB
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void exchangeCDB(){
+	//Put temporary in correct
+	for (int i = 0; i<tempCDBsize ;i++){
+		CDB[i] = tempCDB[i];
+	}
+	CDBsize = tempCDBsize;
+}
 /*
 * orderCDB
 * Order CDB
@@ -930,10 +949,10 @@ void orderCDB(){
 void executeInstructions1(){
 	//Fix aging of instructions in execute
 	incrementTimer();
-	//Order the CDB
-	orderCDB();
 	//Update register
 	updateReg();
+	//Give up FU
+	removeFU();
 }
 
 /*
@@ -947,7 +966,11 @@ void executeInstructions1(){
 * none
 */
 void executeInstructions2(){
-	removeFU();
+	//Create teh correct CDB
+	exchangeCDB();
+	//Order the CDB
+	orderCDB();
+
 }
 ///////////////////////////STATE UPDATE////////////////////////////////
 /*
@@ -962,7 +985,6 @@ void executeInstructions2(){
 */
 void markROBDone(){
 	for (int i= 0; i < CDBsize; i++){
-		//printf("update - tag:%d cycle:%d\n", CDB[i].tag, cycle);
 		updateROB(CDB[i].tag);
 	}
 }
@@ -1003,6 +1025,8 @@ void removeScheduler(){
  					updateNode->retire = cycle;
  					updateROBfromNode(updateNode);
  					removeLL(&k1QueuePointers, updateNode,TRUE);
+ 					//printf("update: %d %d\n", updateNode->line_number, cycle);
+
  					break;
  				}
  				//go to next node
@@ -1041,12 +1065,10 @@ void retireInstructions(){
 	int initHead = ROBPointers.head;
 	int initSize = ROBPointers.size;
 	//Retire as many instructions as possible
-	for (int i = 0; i<initSize; i++){
+	for (int i = 0; i<f; i++){
 		indexROB = (initHead + i)%r;
 		//check if it is valid and remove if it is
 		if (ROBTable[indexROB].done ==1){
-		//			printf("retire - tag:%d cycle:%d\n", indexROB, cycle);
-
 			removeROB();
 		}else{		//if not done, stop removing
 			break;
@@ -1122,6 +1144,7 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 //Allocate array
 	 ROBTable = (ROB*) malloc(r*sizeof(ROB));			//ROB
 	 CDB = (CDBbus *) malloc((k0+k1+k2+10)*sizeof(CDBbus));		//CDB
+	 tempCDB = (CDBbus *) malloc((k0+k1+k2+10)*sizeof(CDBbus));		//CDB
 	 //Arrays to hold pointers to currently in FU
 	 inK0 = (node**) malloc(k0*sizeof(node*));
 	 inK1 = (node**) malloc(k1*sizeof(node*));
@@ -1194,6 +1217,7 @@ void complete_proc(proc_stats_t *p_stats) {
 
 	//Free allocated memory
 	free(CDB);
+	free(tempCDB);
 	free(ROBTable);
 	free(inK0);
 	free(inK1);
