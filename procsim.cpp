@@ -653,6 +653,7 @@ void scheduleInstructionstoFU(){
 			for (int j = 0; j<k0; j++){
 				if (inK0[j]==NULL){
 					inK0[j] = temp0;
+					break;
 				}
 			}
 	
@@ -676,6 +677,7 @@ void scheduleInstructionstoFU(){
 			for (int j = 0; j<k1; j++){
 				if (inK1[j]==NULL){
 					inK1[j] = temp1;
+					break;
 				}
 			}
 
@@ -700,6 +702,7 @@ void scheduleInstructionstoFU(){
 			for (int j = 0; j<k2; j++){
 				if (inK2[j]==NULL){
 					inK2[j] = temp2;
+					break;
 				}
 			}	
 
@@ -762,6 +765,54 @@ void updateReg(){
 }
 
 /*
+* removeFU
+* Removes Items from functional units
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void removeFU(){
+	//Execute k0 instructions
+	for (int j= 0; j<k0; j++){
+		if (inK0[j] != NULL){
+			//Check if instructions is done
+			if (inK0[j]->age == DONE){
+				printf("a:\n");
+				k0QueuePointers.availExec++;
+				inK0[j] = NULL;
+			}
+		}
+	}
+
+	//Execute k1 instructions
+	for (int j= 0; j<k1; j++){
+		if (inK1[j] != NULL){
+			//Check if instructions is done
+			if (inK1[j]->age == DONE){
+				printf("b:\n");
+
+				k1QueuePointers.availExec++;
+				inK1[j] = NULL;
+			}
+		}
+	}	
+
+	//Execute k2 instructions
+	for (int j= 0; j<k2; j++){
+		if (inK2[j] != NULL){
+			//Check if instructions is done
+			if (inK2[j]->age == DONE){
+				k2QueuePointers.availExec++;
+				inK2[j] = NULL;
+			}
+		}
+	}
+}
+
+/*
 * incrementTimer
 * Increment Age
 *
@@ -790,7 +841,7 @@ void incrementTimer(){
 				inK0[j]->state = cycle+1;
 				//Fix up FU array
 				inK0[j]->age = DONE;
-				inK0[j] = NULL;
+				//inK0[j] = NULL;
 			}
 		}
 	}
@@ -810,7 +861,7 @@ void incrementTimer(){
 				inK1[j]->state = cycle+1;				
 				//Fix up FU array					
 				inK1[j]->age = DONE;
-				inK1[j] = NULL;
+				//inK1[j] = NULL;
 			}
 		}
 	}	
@@ -830,7 +881,7 @@ void incrementTimer(){
 				inK2[j]->state = cycle+1;					
 				//Fix up FU array					
 				inK2[j]->age = DONE;
-				inK2[j] = NULL;
+				//inK2[j] = NULL;
 			}
 		}
 	}
@@ -894,7 +945,7 @@ void executeInstructions1(){
 * none
 */
 void executeInstructions2(){
-	return;
+	removeFU();
 }
 ///////////////////////////STATE UPDATE////////////////////////////////
 /*
