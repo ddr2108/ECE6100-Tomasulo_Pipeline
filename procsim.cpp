@@ -780,7 +780,6 @@ void removeFU(){
 		if (inK0[j] != NULL){
 			//Check if instructions is done
 			if (inK0[j]->age == DONE){
-				printf("a:\n");
 				k0QueuePointers.availExec++;
 				inK0[j] = NULL;
 			}
@@ -792,8 +791,6 @@ void removeFU(){
 		if (inK1[j] != NULL){
 			//Check if instructions is done
 			if (inK1[j]->age == DONE){
-				printf("b:\n");
-
 				k1QueuePointers.availExec++;
 				inK1[j] = NULL;
 			}
@@ -841,7 +838,6 @@ void incrementTimer(){
 				inK0[j]->state = cycle+1;
 				//Fix up FU array
 				inK0[j]->age = DONE;
-				//inK0[j] = NULL;
 			}
 		}
 	}
@@ -861,7 +857,6 @@ void incrementTimer(){
 				inK1[j]->state = cycle+1;				
 				//Fix up FU array					
 				inK1[j]->age = DONE;
-				//inK1[j] = NULL;
 			}
 		}
 	}	
@@ -881,7 +876,6 @@ void incrementTimer(){
 				inK2[j]->state = cycle+1;					
 				//Fix up FU array					
 				inK2[j]->age = DONE;
-				//inK2[j] = NULL;
 			}
 		}
 	}
@@ -1037,7 +1031,7 @@ void retireInstructions(){
 	int indexROB;
 
 	//Retire as many instructions as possible
-	for (int i = 0; i<r; i++){
+	for (int i = 0; i<ROBPointers.size; i++){
 		indexROB = (ROBPointers.head + i)%r;
 		//check if it is valid and remove if it is
 		if (ROBTable[indexROB].done ==1){
