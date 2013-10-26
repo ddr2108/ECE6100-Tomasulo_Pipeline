@@ -39,6 +39,12 @@ typedef struct _node{
 	int src1Tag;
 	int src2Tag;
 	int age;
+	int fetch;
+	int disp;
+	int sched;
+	int exec;
+	int state;
+	int retire;
 } node;
 //Pointers for Linked List 
 typedef struct _llPointers{
@@ -100,7 +106,8 @@ int instruction;
 //File done flag
 int readDoneFlag  = 1;
 int flag = 1; 
-
+//Clock
+int cycle = 1;
 /////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////ROB MANIPULATION//////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////
@@ -197,7 +204,21 @@ void removeROB(){
 * Returns status of the linked list
 *
 * parameters: 
-* llPointers* pointersIn
+* node* print
+*
+* returns:
+* none
+*/
+void printNode(node* print){
+	printf("%d %d %d %d %d %d %d\n", print->line_number, print->fetch, print->disp, print->sched, print->exec, print->state, print->retire);
+}
+
+/*
+* statusLL
+* Returns status of the linked list
+*
+* parameters: 
+* llPointers* pointersIn - pointer to lined list
 *
 * returns:
 * int - status
@@ -341,6 +362,8 @@ void createNodeforSched(node* dispatchNode, int tag){
 	}else{
 		dispatchNode->src2Tag = READY;
 	}
+	
+	dispatchNode->sched = cycle;
 
 	//Set so not in FU yet
 	dispatchNode->age = READY;
@@ -385,6 +408,8 @@ void fetchInstructions(){
 			if (readFlag==TRUE){		//If thre is an instruction
 				//Create new node
 				readNode = createNode(*p_inst, instruction);
+				readNode->fetch = cycle;
+				readNode->disp = cycle + 1;
 				//Add node to list of instructions
 				addLL(&dispatchPointers, readNode);	//add to dispatch queue
 				//Increment instruction number
@@ -440,6 +465,9 @@ void dispatchInstructions(){
 				//Add new data	
 				createNodeforSched(dispatchNode, tag);
 
+				//Add cycle info
+				dispatchNode->sched = cycle;
+
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
 				dispatchNode = dispatchNode->next;
@@ -459,6 +487,9 @@ void dispatchInstructions(){
 				//Add new data	
 				createNodeforSched(dispatchNode, tag);
 
+				//Add cycle info
+				dispatchNode->sched = cycle;
+
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
 				dispatchNode = dispatchNode->next;
@@ -477,6 +508,9 @@ void dispatchInstructions(){
 				tag = addROB(dispatchNode);	
 				//Add new data	
 				createNodeforSched(dispatchNode, tag);
+
+				//Add cycle info
+				dispatchNode->sched = cycle;
 
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
@@ -589,6 +623,9 @@ void scheduleInstructions(){
 			k0QueuePointers.availExec--;
 			temp0->age  = 1;
 				
+			//Add cycle info
+			temp0->exec = cycle;
+
 			//Store pointers for things currently in FU	
 			for (int j = 0; j<k0; j++){
 				if (inK0[j]==NULL){
@@ -608,7 +645,10 @@ void scheduleInstructions(){
 			//Add new node to list
 			k1QueuePointers.availExec--;
 			temp1->age  = 2;
-				
+			
+			//Add cycle info
+			temp1->exec = cycle;
+
 			//Store pointers for things currently in FU	
 			for (int j = 0; j<k1; j++){
 				if (inK1[j]==NULL){
@@ -629,6 +669,9 @@ void scheduleInstructions(){
 			//Add new node to list
 			k2QueuePointers.availExec--;
 			temp2->age  = 3;
+
+			//Add cycle info
+			temp2->exec = cycle;
 
 			//Store pointers for things currently in FU	
 			for (int j = 0; j<k2; j++){
@@ -692,6 +735,8 @@ void incrementTimer(){
 				CDB[CDBsize].FU = 0;
 				CDB[CDBsize].line_number = inK0[j]->line_number;
 				CDB[CDBsize++].reg = inK0[j]->p_inst.dest_reg;
+				//Add cycle info
+				inK0[j]->state = cycle;
 				//Fix up FU array					
 				inK0[j]->age = DONE;
 				inK0[j] = NULL;
@@ -710,7 +755,9 @@ void incrementTimer(){
 				CDB[CDBsize].tag = inK1[j]->destTag;
 				CDB[CDBsize].FU = 1;
 				CDB[CDBsize].line_number = inK1[j]->line_number;
-				CDB[CDBsize++].reg = inK1[j]->p_inst.dest_reg;					
+				CDB[CDBsize++].reg = inK1[j]->p_inst.dest_reg;	
+				//Add cycle info
+				inK1[j]->state = cycle;				
 				//Fix up FU array					
 				inK1[j]->age = DONE;
 				inK1[j] = NULL;
@@ -728,7 +775,9 @@ void incrementTimer(){
 				CDB[CDBsize].tag = inK2[j]->destTag;
 				CDB[CDBsize].FU = 2;
 				CDB[CDBsize].line_number = inK2[j]->line_number;
-				CDB[CDBsize++].reg = inK2[j]->p_inst.dest_reg;					
+				CDB[CDBsize++].reg = inK2[j]->p_inst.dest_reg;
+				//Add cycle info
+				inK2[j]->state = cycle;					
 				//Fix up FU array					
 				inK2[j]->age = DONE;
 				inK2[j] = NULL;
@@ -819,6 +868,7 @@ void removeScheduler(){
 			updateNode = k0QueuePointers.head;
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
+ 					updateNode->retire = cycle;
  					removeLL(&k0QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -830,6 +880,7 @@ void removeScheduler(){
 			updateNode = k1QueuePointers.head;
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
+ 					updateNode->retire = cycle;
  					removeLL(&k1QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -841,6 +892,7 @@ void removeScheduler(){
 			updateNode = k2QueuePointers.head;
  			while (updateNode!=NULL){
  				if (CDB[j].tag==updateNode->destTag){
+ 					updateNode->retire = cycle;
  					removeLL(&k2QueuePointers, updateNode,TRUE);
  					break;
  				}
@@ -964,7 +1016,7 @@ void run_proc(proc_stats_t* p_stats) {
 	instruction = 0;
 
 	//Pipeline
-	while(flag){
+	while(0){
 		//////////////FIRST HALF OF CYCLE///////////////////////
 		//Dispatch
 		dispatchInstructions();
@@ -991,6 +1043,11 @@ void run_proc(proc_stats_t* p_stats) {
  * @p_stats Pointer to the statistics structure
  */
 void complete_proc(proc_stats_t *p_stats) {
+	//stats
+	p_stats->retired_instruction = instruction;
+	p_stats->cycle_count = cycle;
+	p_stats->avg_ipc = instruction/cycle;
+
 	//Free allocated memory
 	free(CDB);
 	free(ROBTable);
