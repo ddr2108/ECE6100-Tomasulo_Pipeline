@@ -13,8 +13,8 @@
 
 //Field Status
 #define UNINITIALIZED -2
-#define READY         -1
-#define DONE          -3
+#define READY         -3
+#define DONE          -4
 
 //Register structure
 typedef struct _reg{
@@ -95,6 +95,12 @@ FIFOPointers ROBPointers;
 CDBbus* CDB;
 int CDBsize = 0;
 
+//Holds line number
+int instruction;
+//File done flag
+int readDoneFlag  = 1;
+int flag = 1; 
+
 /////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////ROB MANIPULATION//////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////
@@ -140,7 +146,9 @@ int addROB(node* dispatchNode){
 		ROBTable[ROBPointers.tail].p_inst = dispatchNode->p_inst;
 		ROBTable[ROBPointers.tail].done = 0;
 		//Fix register file
-		regFile[dispatchNode->p_inst.dest_reg].tag = ROBPointers.tail;
+		if (dispatchNode->p_inst.dest_reg!=-1){
+			regFile[dispatchNode->p_inst.dest_reg].tag = ROBPointers.tail;
+		}
 		//Fix pointers
 		ROBPointers.tail = (ROBPointers.tail+1)%r;
 	}else{
@@ -323,8 +331,16 @@ void createNodeforSched(node* dispatchNode, int tag){
 	dispatchNode->destTag = tag;
 
 	//Add valididty data
-	dispatchNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]].tag;
-	dispatchNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]].tag;
+	if (dispatchNode->p_inst.src_reg[0]!=-1){
+		dispatchNode->src1Tag = regFile[dispatchNode->p_inst.src_reg[0]].tag;
+	}else{
+		dispatchNode->src1Tag = READY;
+	}
+	if (dispatchNode->p_inst.src_reg[1]!=-1){
+		dispatchNode->src2Tag = regFile[dispatchNode->p_inst.src_reg[1]].tag;
+	}else{
+		dispatchNode->src2Tag = READY;
+	}
 
 	//Set so not in FU yet
 	dispatchNode->age = READY;
@@ -341,12 +357,12 @@ void createNodeforSched(node* dispatchNode, int tag){
 * Fetch Instcutions
 *
 * parameters: 
-* int instuction - number of instructions 
+* none 
 *
 * returns:
-* int - number of instructions
+* none
 */
-int fetchInstructions(int instruction){
+void fetchInstructions(){
 	//Node of new instruction
 	node* readNode;
 	//Instruction
@@ -373,6 +389,8 @@ int fetchInstructions(int instruction){
 				addLL(&dispatchPointers, readNode);	//add to dispatch queue
 				//Increment instruction number
 				instruction++;									
+			}else{
+				readDoneFlag = 0;
 			}
 	
 		}else{
@@ -382,9 +400,6 @@ int fetchInstructions(int instruction){
 
 	//Free memory
 	free(p_inst);
-
-	//Return instruction number
-	return instruction;
 }
 
 ///////////////////////////DISPATCH///////////////////////////////////
@@ -418,7 +433,7 @@ void dispatchInstructions(){
 		instructionDispatch = dispatchNode->p_inst; 	//Get instruction
 
 		//add to correct scheduling queue and ROB and remove from dispatcher
-		if (instructionDispatch.op_code == 0 && statusLL(k0QueuePointers)!=FULL){
+		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 )&& statusLL(k0QueuePointers)!=FULL){
 			if (statusROB()!=FULL){
 				//Add to ROB
 				tag = addROB(dispatchNode);	
@@ -475,20 +490,6 @@ void dispatchInstructions(){
 				//if ROB full, stop dispatch
 				dispatcherFlag = FALSE;
 			}
-		}else if(instructionDispatch.op_code == -1 && statusLL(k2QueuePointers)!=FULL){
-			/*if (statusROB()!=FULL){
-				//Add to ROB
-				tag = addROB(dispatchNode);	
-
-				//Go to next item in scheduler
-				dispatchNodeTemp = dispatchNode;
-				dispatchNode = dispatchNode->next;
-				//Remove item from dispatcher queue
-				removeLL(&dispatchQueue, dispatchNodeTemp, TRUE);
-			}else{
-				//if ROB full, stop dispatch
-				dispatcherFlag = FALSE;
-			}*/
 		}else{
 			dispatcherFlag = FALSE;
 		}
@@ -565,7 +566,7 @@ void scheduleUpdate(){
 
 /*
 * scheduleInstructions
-* Schedule Instcutions
+* Schedule Instrutions
 *
 * parameters: 
 * none 
@@ -874,6 +875,11 @@ void retireInstructions(){
 			break;
 		}
 	}
+
+	//all instructions done
+	if (readDoneFlag == 0 && statusROB()==EMPTY){
+		flag = 0;
+	}
 }
 
 
@@ -889,7 +895,7 @@ void retireInstructions(){
 */
 void updateState(){
 	markROBDone();
-	retireInstructions();
+	removeScheduler();
 	retireInstructions();
 }
 
@@ -936,10 +942,10 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 //ROB FIFO
 	 ROBPointers = {0,1};
 	 //LL Pointers
-	 dispatchPointers = {NULL, NULL, (int)r,    (int)0}; 
-	 k0QueuePointers =  {NULL, NULL, (int)(m*k0), (int)k0};
-	 k1QueuePointers =  {NULL, NULL, (int)(m*k1) ,(int)k1};
-	 k2QueuePointers =  {NULL, NULL, (int)(m*k2), (int)k2};
+	 dispatchPointers = {NULL, NULL, (int)r      , (int)0}; 
+	 k0QueuePointers =  {NULL, NULL, (int)(m*k0) , (int)k0};
+	 k1QueuePointers =  {NULL, NULL, (int)(m*k1) , (int)k1};
+	 k2QueuePointers =  {NULL, NULL, (int)(m*k2) , (int)k2};
 
 }
 
@@ -951,13 +957,11 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
  * @p_stats Pointer to the statistics structure
  */
 void run_proc(proc_stats_t* p_stats) {
-	//Flag to keep program running
-	int flag = 1;
-	//Line number
-	int instruction = 0;
 	//Cycle timer
 	int cycle = 0;
 
+	//Line number
+	instruction = 0;
 
 	//Pipeline
 	while(flag){
@@ -966,7 +970,7 @@ void run_proc(proc_stats_t* p_stats) {
 		dispatchInstructions();
 		//////////////SECOND HALF OF CYCLE//////////////////////
 		//Fetch
-		instruction = fetchInstructions(instruction);
+		fetchInstructions();
 		scheduleInstructions();
 		executeInstructions();
 		scheduleUpdate();
