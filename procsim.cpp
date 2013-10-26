@@ -66,6 +66,7 @@ typedef struct _ROB{
 typedef struct _FIFOPointers{
 	int head;
 	int tail;
+	int size;
 } FIFOPointers; 
 
 
@@ -122,10 +123,8 @@ int cycle = 1;
 * int - status
 */
 int statusROB(){
-	if((ROBPointers.tail-ROBPointers.head)==1){
+	if(ROBPointers.tail==ROBPointers.head && ROBPointers.size == 0){
 		return EMPTY;
-	}else if (ROBPointers.tail==0 && ROBPointers.head==(r-1)){
-		return EMPTY; 
 	}else if(ROBPointers.head == ROBPointers.tail){
 		return FULL;
 	}else{
@@ -158,6 +157,7 @@ int addROB(node* dispatchNode){
 		}
 		//Fix pointers
 		ROBPointers.tail = (ROBPointers.tail+1)%r;
+		ROBPointers.size++;
 	}else{
 		return FALSE;
 	}
@@ -193,6 +193,7 @@ void updateROB(int index){
 void removeROB(){
 	//Fix ROB queue
 	ROBPointers.head = (ROBPointers.head+1)%r;
+	ROBPointers.size--;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -599,8 +600,8 @@ void scheduleUpdate(){
 
 
 /*
-* scheduleInstructions
-* Schedule Instrutions
+* scheduleInstructionstoFU
+* Schedule Instrutions to FU
 *
 * parameters: 
 * none 
@@ -608,7 +609,7 @@ void scheduleUpdate(){
 * returns:
 * none
 */
-void scheduleInstructions(){
+void scheduleInstructionstoFU(){
 	//Scheduler
 	node* temp0 = k0QueuePointers.head;
 	node* temp1 = k1QueuePointers.head;
@@ -688,6 +689,34 @@ void scheduleInstructions(){
 		}
 	}
 
+}
+
+/*
+* scheduleInstructions2
+* Schedule Instrutions
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void scheduleInstructions1(){
+	//Put on FU
+	scheduleInstructionstoFU();
+}
+/*
+* scheduleInstructions1
+* Schedule Instrutions
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void scheduleInstructions2(){
+	scheduleUpdate();
 }
 
 ///////////////////////////EXECUTE///////////////////////////////////
@@ -815,7 +844,7 @@ void orderCDB(){
 }
 
 /*
-* executeInstructions
+* executeInstructions1
 * Execute Instcutions
 *
 * parameters: 
@@ -824,13 +853,28 @@ void orderCDB(){
 * returns:
 * none
 */
-void executeInstructions(){
+void executeInstructions1(){
 	//Fix aging of instructions in execute
 	incrementTimer();
 	//Order the CDB
 	orderCDB();
+	//Update register
+	updateReg();
 }
 
+/*
+* executeInstructions2
+* Execute Instcutions
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void executeInstructions2(){
+	return;
+}
 ///////////////////////////STATE UPDATE////////////////////////////////
 /*
 * markROBDone
@@ -936,7 +980,7 @@ void retireInstructions(){
 
 
 /*
-* updateState
+* updateState1
 * Update States
 *
 * parameters: 
@@ -945,12 +989,24 @@ void retireInstructions(){
 * returns:
 * none
 */
-void updateState(){
+void updateState1(){
 	markROBDone();
+}
+
+/*
+* updateState2
+* Update States
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void updateState2(){
 	removeScheduler();
 	retireInstructions();
 }
-
 /////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////PIPELINE DRIVERS//////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////
@@ -992,7 +1048,7 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 
 	 //Initialize pointers
 	 //ROB FIFO
-	 ROBPointers = {0,1};
+	 ROBPointers = {0,0,0};
 	 //LL Pointers
 	 dispatchPointers = {NULL, NULL, (int)r      , (int)0}; 
 	 k0QueuePointers =  {NULL, NULL, (int)(m*k0) , (int)k0};
@@ -1018,15 +1074,23 @@ void run_proc(proc_stats_t* p_stats) {
 	//Pipeline
 	while(flag){
 		//////////////FIRST HALF OF CYCLE///////////////////////
-		//Dispatch
+		//SU1
+		updateState1();
+		//EXEC1
+		executeInstructions1();
+		//SCHED1
+		scheduleInstructions1();
+		//DISPATCH
 		dispatchInstructions();
-		//////////////SECOND HALF OF CYCLE//////////////////////
-		//Fetch
+		//FETCH
 		fetchInstructions();
-		scheduleInstructions();
-		executeInstructions();
-		scheduleUpdate();
-		updateReg();
+		//////////////SECOND HALF OF CYCLE//////////////////////
+		//SU2
+		updateState2();
+		//EXEC1
+		executeInstructions2();
+		//SCHED1
+		scheduleInstructions2();
 		////////////////////////////////////////////////////////
 		
 		//Change clock cycle
