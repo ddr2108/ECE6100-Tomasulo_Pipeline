@@ -518,7 +518,7 @@ void setUpRegs(){
 */
 void dispatchToScheduler(){
 	//Node
-	node* dispatchNode, *dispatchNode2;
+	node* dispatchNode;
 	//Flag
 	int dispatcherFlag = TRUE;
 	//Instruction being looked at
