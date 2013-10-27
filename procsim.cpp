@@ -119,6 +119,10 @@ int readDoneFlag  = 1;
 int flag = 1; 
 //Clock
 int cycle = 1;
+
+//remove
+int add0, add1, add2;
+
 /////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////ROB MANIPULATION//////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////
@@ -165,10 +169,10 @@ int statusROB(){
 * node* dispatchNode - the node being added
 *
 * returns:
-* int - tag into ROB, -1 if no room
+* int - ind into ROB, -1 if no room
 */
 int addROB(node* dispatchNode){
-	int tag = ROBPointers.tail;		//tag added to 
+	int ind = ROBPointers.tail;		//tag added to 
 
 	if (statusROB()!=FULL){			//if there is room in the ROB
 		//Put item into ROB table
@@ -176,18 +180,13 @@ int addROB(node* dispatchNode){
 		ROBTable[ROBPointers.tail].destTag = dispatchNode->destTag;
 		ROBTable[ROBPointers.tail].p_inst = dispatchNode->p_inst;
 		ROBTable[ROBPointers.tail].done = 0;
-		//Fix register file
-		if (dispatchNode->p_inst.dest_reg!=-1){
-			regFile[dispatchNode->p_inst.dest_reg].tag = dispatchNode->destTag;
-		}
-		//Fix pointers
 		ROBPointers.tail = (ROBPointers.tail+1)%r;
 		ROBPointers.size++;
 	}else{
 		return FALSE;
 	}
 
-	return tag;
+	return ind;
 }
 
 /*
@@ -284,7 +283,6 @@ int statusLL(llPointers pointersIn){
 */
 int addLL(llPointers* pointersIn, node* nextNode){
 	//Add new element if there is enough room
-	if (pointersIn->size>0){
 		pointersIn->size--;	//Decrease room
 
 		//Fix next and prev pointers
@@ -301,9 +299,7 @@ int addLL(llPointers* pointersIn, node* nextNode){
 
 		//Fix tail pointer
 		pointersIn->tail = nextNode;
-	}else{
-		return FALSE;
-	}
+
 
 	return TRUE;
 }
@@ -397,6 +393,11 @@ void createNodeforSched(node* dispatchNode){
 		dispatchNode->src2Tag = READY;
 	}
 
+	//Fix register file
+	if (dispatchNode->p_inst.dest_reg!=-1){
+		regFile[dispatchNode->p_inst.dest_reg].tag = dispatchNode->destTag;
+	}
+
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -428,8 +429,7 @@ void fetchInstructions(){
 
 	//Fetch F instructions at a time
 	for (int i = 0; i<f && readFlag==TRUE; i++){
-
-		if (dispatchPointers.size > 0){		//if there is room in dispatcher queue
+		if ((dispatchPointers.size+add0+add1+add2) > 0){		//if there is room in dispatcher queue
 
 			//Read in  instruction
 			readFlag = read_instruction(p_inst);									//fetch instruction
@@ -441,9 +441,10 @@ void fetchInstructions(){
 				readNode = createNode(*p_inst, instruction);
 				readNode->fetch = cycle;
 				readNode->disp = cycle + 1;
+				//printf("%d\t FETCHED %d\n", cycle, instruction);
 				//Add node to list of instructions
 				addLL(&dispatchPointers, readNode);	//add to dispatch queue
-				//Increment instruction number
+
 			}else{
 				readDoneFlag = 0;
 			}
@@ -469,18 +470,39 @@ void fetchInstructions(){
 * none
 */
 void setUpRegs(){
+	int i = 0;
+
 	//Node
-	node* dispatchNode;
+	node* dispatchNode, *dispatchNodeTemp;
 
 	//Initialize initial node to be dispatched
-	dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
-	
+	dispatchNode = dispatchPointers.head;
+
 	//Read from dispatch queue
-	while(dispatchNode!=NULL){
+	while(i++<(add0+add1+add2) && dispatchNode!=NULL){
 		//Add scheduling info
 		createNodeforSched(dispatchNode);
-		//Go to next node
+
+		//Go to next item in scheduler
+		dispatchNodeTemp = dispatchNode;
 		dispatchNode = dispatchNode->next;
+		//Remove item from dispatcher queue
+		removeLL(&dispatchPointers, dispatchNodeTemp, FALSE);
+		//Add to queue linked list
+		if ((dispatchNodeTemp->p_inst.op_code == 0 || dispatchNodeTemp->p_inst.op_code == -1 )){
+			addLL(&k0QueuePointers, dispatchNodeTemp);	
+		}
+		//Add to queue linked list
+		if (dispatchNodeTemp->p_inst.op_code == 1){
+			addLL(&k1QueuePointers, dispatchNodeTemp);
+	
+		}
+		//Add to queue linked list
+		if (dispatchNodeTemp->p_inst.op_code == 2){
+			addLL(&k2QueuePointers, dispatchNodeTemp);
+	
+		}
+
 	}
 }
 
@@ -497,113 +519,91 @@ void setUpRegs(){
 */
 void dispatchToScheduler(){
 	//Node
-	node* dispatchNode;
-	node* dispatchNodeTemp; 
+	node* dispatchNode, *dispatchNode2;
 	//Flag
 	int dispatcherFlag = TRUE;
 	//Instruction being looked at
 	proc_inst_t instructionDispatch;
 	//Tag;
-	int tag; 
-	int a, b;
+	int ind; 
 
 	//Initialize initial node to be dispatched
 	dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
 
 	//Read from dispatch queue
-	while(dispatcherFlag!=FALSE && statusLL(dispatchPointers)!=EMPTY && dispatchNode!=NULL){
+	while(dispatcherFlag!=FALSE && dispatchNode!=NULL){
+	//fprintf(stderr, "time: %d dispatch:%d %d %d %d rob:%d\n in dispatch:",cycle, dispatchPointers.size, k0QueuePointers.size, k1QueuePointers.size, k2QueuePointers.size, statusROB()!=FULL);
+	dispatchNode2 = dispatchPointers.head;
+	while (dispatchNode2!=NULL){
+	//	fprintf(stderr, "%d ", dispatchNode2->line_number);
+		dispatchNode2 = dispatchNode2->next;
+	}
+		//	fprintf(stderr, "\n");
 
 		instructionDispatch = dispatchNode->p_inst; 	//Get instruction
 
 		//add to correct scheduling queue and ROB and remove from dispatcher
-		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 ) && statusLL(k0QueuePointers)!=FULL){
+		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 ) && (k0QueuePointers.size-add0)>0){
 
 			if (statusROB()!=FULL){
-				/*a = dispatchNode->src1Tag;
-				b = dispatchNode->src2Tag;*/
-				//Add new data	
-				createNodeforSched(dispatchNode);
-
-				/*if (a != dispatchNode->src1Tag){
-					printf("\n%d, %d, %d\n", a, dispatchNode->src1Tag, dispatchNode->line_number);
-				}
-				if (b != dispatchNode->src2Tag){
-					printf("\n%d, %d, %d\n", b, dispatchNode->src2Tag, dispatchNode->line_number);
-				}*/
-
+				add0++;
+				//Add timing data	
 				dispatchNode->sched = cycle+1;
+				//printf("%d\t SCHEDULED %d\n", cycle+1, dispatchNode->line_number);
 
 				//Set so not in FU yet
 				dispatchNode->age = READY;
-				//Add to ROB
-				tag = addROB(dispatchNode);	
-				//Copy over data
-				dispatchNode->ind = tag;
 
+				//Add to ROB
+				ind = addROB(dispatchNode);	
+				//Copy over data
+				dispatchNode->ind = ind;
 
 				//Go to next item in scheduler
-				dispatchNodeTemp = dispatchNode;
 				dispatchNode = dispatchNode->next;
-				//Remove item from dispatcher queue
-				removeLL(&dispatchPointers, dispatchNodeTemp, FALSE);
-
-				//Add to queue linked list
-				addLL(&k0QueuePointers, dispatchNodeTemp);	
 			}else{
 				//if ROB full, stop dispatch
 				dispatcherFlag = FALSE;
 			}
-		}else if(instructionDispatch.op_code == 1 && statusLL(k1QueuePointers)!=FULL){
-
+		}else if(instructionDispatch.op_code == 1 && (k1QueuePointers.size-add1)>0){
 			if (statusROB()!=FULL){
+				add1++;
+						//		printf("%d\t SCHEDULED %d\n", cycle+1, dispatchNode->line_number);
 
-				//Add new data	
-				createNodeforSched(dispatchNode);
-				//Add to ROB
-				tag = addROB(dispatchNode);	
-				//Copy over data
-				dispatchNode->ind = tag;
+				//Add timing data
 				dispatchNode->sched = cycle+1;
-
 				//Set so not in FU yet
 				dispatchNode->age = READY;
 
+				//Add to ROB
+				ind = addROB(dispatchNode);	
+				//Copy over data
+				dispatchNode->ind = ind;
+
 				//Go to next item in scheduler
-				dispatchNodeTemp = dispatchNode;
 				dispatchNode = dispatchNode->next;
-				//Remove item from dispatcher queue
-				removeLL(&dispatchPointers, dispatchNodeTemp, FALSE);
-
-				//Add to queue linked list
-				addLL(&k1QueuePointers, dispatchNodeTemp);	
-				//printf("%d %d, %d\n", dispatchNodeTemp->line_number, k1QueuePointers.size, cycle);
-
-
 			}else{
 				//if ROB full, stop dispatch
 				dispatcherFlag = FALSE;
 			}
-		}else if(instructionDispatch.op_code == 2 && statusLL(k2QueuePointers)!=FULL){
+		}else if(instructionDispatch.op_code == 2 && (k2QueuePointers.size-add2)>0){
 			if (statusROB()!=FULL){
-				//Add new data	
-				createNodeforSched(dispatchNode);
-				//Add to ROB
-				tag = addROB(dispatchNode);	
-				//Copy over data
-				dispatchNode->ind = tag;
-				dispatchNode->sched = cycle+1;
+				add2++;
+				//				printf("%d\t SCHEDULED %d\n", cycle+1, dispatchNode->line_number);
 
+				//Add timing data
+				dispatchNode->sched = cycle+1;
 				//Set so not in FU yet
 				dispatchNode->age = READY;
 
-				//Go to next item in scheduler
-				dispatchNodeTemp = dispatchNode;
-				dispatchNode = dispatchNode->next;
-				//Remove item from dispatcher queue
-				removeLL(&dispatchPointers, dispatchNodeTemp, FALSE);
+				//Add to ROB
+				ind = addROB(dispatchNode);	
+				//Copy over data
+				dispatchNode->ind = ind;
 
-				//Add to queue linked list
-				addLL(&k2QueuePointers, dispatchNodeTemp);	
+
+				//Go to next item in scheduler
+				dispatchNode = dispatchNode->next;
 			}else{
 				//if ROB full, stop dispatch
 				dispatcherFlag = FALSE;
@@ -611,7 +611,6 @@ void dispatchToScheduler(){
 		}else{
 			dispatcherFlag = FALSE;
 		}
-
 
 	}
 }
@@ -628,7 +627,9 @@ void dispatchToScheduler(){
 * none
 */
 void dispatchInstructions1(){
-	//setUpRegs();
+	add0 = 0;
+	add1 = 0;
+	add2 = 0;
 
 	dispatchToScheduler();
 }
@@ -644,10 +645,50 @@ void dispatchInstructions1(){
 * none
 */
 void dispatchInstructions2(){
+	setUpRegs();
 }
 
 
 ///////////////////////////SCHEDULE///////////////////////////////////
+
+/*
+*/
+int checkAge(int unit){
+	int count = 0;
+
+	if (unit == 0){
+		for (int j = 0; j<k0; j++){
+			if (inK1[j]!=NULL && inK1[j]->age == 1){
+				count++;
+			}
+			if (count>=k0){
+				return 0;
+			}
+		}
+	}
+	if (unit == 1){
+		for (int j = 0; j<k1*2; j++){
+			if (inK1[j]!=NULL && inK1[j]->age == 2){
+				count++;
+			}
+			if (count>=k1){
+				return 0;
+			}
+		}
+	}
+	if (unit == 2){
+		for (int j = 0; j<k2*2; j++){
+			if (inK2[j]!=NULL && inK2[j]->age == 3){
+				count++;
+			}
+			if (count>=k2){
+				return 0;
+			}
+		}
+	}
+fprintf(stderr,"Hello");
+	return 1;
+}
 
 /*
 * scheduleUpdate
@@ -733,12 +774,11 @@ void scheduleInstructionstoFU(){
 	while(temp0 != NULL || temp1 != NULL || temp2 != NULL ){
 
 		//Check if item can be put in k0 execute
-		if (temp0!=NULL && k0QueuePointers.availExec>0 && temp0->src1Tag == READY && temp0->src2Tag == READY && temp0->age == READY){
+		if (temp0!=NULL && k0QueuePointers.availExec>0 && temp0->src1Tag == READY && temp0->src2Tag == READY && temp0->age == READY && checkAge(0)){
 
 			//Add new node to list
 			k0QueuePointers.availExec--;
 			temp0->age  = 1;
-					//printf("start:%d %d %d\n", temp0->line_number, cycle, k0QueuePointers.availExec);
 
 			//Add cycle info
 			temp0->exec = cycle+1;
@@ -757,9 +797,11 @@ void scheduleInstructionstoFU(){
 			//Go to next element
 			temp0 = temp0->next;
 		}
-
+if (temp2!=NULL){
+	//fprintf(stderr,"wait for f2:%d %d %d %d\n",cycle, temp2->line_number, temp2->age,k2QueuePointers.availExec);
+}
 		//Check if item can be put in k1 execute
-		if (temp1!=NULL && k1QueuePointers.availExec>0 && temp1->src1Tag == READY && temp1->src2Tag== READY && temp1->age == READY){
+		if (temp1!=NULL && k1QueuePointers.availExec>0 && temp1->src1Tag == READY && temp1->src2Tag== READY && temp1->age == READY && checkAge(1)){
 			//Add new node to list
 			k1QueuePointers.availExec--;
 			temp1->age  = 2;
@@ -768,7 +810,7 @@ void scheduleInstructionstoFU(){
 			temp1->exec = cycle+1;
 
 			//Store pointers for things currently in FU	
-			for (int j = 0; j<k1; j++){
+			for (int j = 0; j<k1*2; j++){
 				if (inK1[j]==NULL){
 					inK1[j] = temp1;
 					break;
@@ -784,7 +826,7 @@ void scheduleInstructionstoFU(){
 		
 
 		//Check if item can be put in k2 execute
-		if (temp2!=NULL && k2QueuePointers.availExec>0 && temp2->src1Tag == READY && temp2->src2Tag== READY && temp2->age == READY){
+		if (temp2!=NULL && k2QueuePointers.availExec>0 && temp2->src1Tag == READY && temp2->src2Tag== READY && temp2->age == READY  && checkAge(2)){
 			//Add new node to list
 			k2QueuePointers.availExec--;
 			temp2->age  = 3;
@@ -793,7 +835,7 @@ void scheduleInstructionstoFU(){
 			temp2->exec = cycle+1;
 
 			//Store pointers for things currently in FU	
-			for (int j = 0; j<k2; j++){
+			for (int j = 0; j<k2*3; j++){
 				if (inK2[j]==NULL){
 					inK2[j] = temp2;
 					break;
@@ -849,7 +891,7 @@ void scheduleInstructions2(){
 * returns:
 * none
 */
-void updateReg(){
+/*void updateReg(){
 	//Update register file
 	for (int i = 0; i < CDBsize; i++){
 		if (regFile[CDB[i].reg].tag == CDB[i].tag){
@@ -857,6 +899,16 @@ void updateReg(){
 		}
 	}
 }
+*/
+void updateReg(){
+	//Update register file
+	for (int i = 0; i < tempCDBsize; i++){
+		if (regFile[tempCDB[i].reg].tag == tempCDB[i].tag){
+			regFile[tempCDB[i].reg].tag = READY;
+		}
+	}
+}
+
 
 /*
 * removeFU
@@ -875,14 +927,13 @@ void removeFU(){
 			//Check if instructions is done
 			if (inK0[j]->age == DONE){
 				k0QueuePointers.availExec++;
-				//printf("finish:%d %d %d\n", inK0[j]->line_number, cycle, k0QueuePointers.availExec);
 				inK0[j] = NULL;
 			}
 		}
 	}
 
 	//Execute k1 instructions
-	for (int j= 0; j<k1; j++){
+	for (int j= 0; j<k1*2; j++){
 		if (inK1[j] != NULL){
 			//Check if instructions is done
 			if (inK1[j]->age == DONE){
@@ -893,7 +944,7 @@ void removeFU(){
 	}	
 
 	//Execute k2 instructions
-	for (int j= 0; j<k2; j++){
+	for (int j= 0; j<k2*3; j++){
 		if (inK2[j] != NULL){
 			//Check if instructions is done
 			if (inK2[j]->age == DONE){
@@ -932,6 +983,8 @@ void incrementTimer(){
 				tempCDB[tempCDBsize++].reg = inK0[j]->p_inst.dest_reg;
 				//Add cycle info
 				inK0[j]->state = cycle+1;
+				//printf("%d\t STATE UPDATE %d\n", cycle+1,  inK0[j]->line_number);
+
 				//Fix up FU array
 				inK0[j]->age = DONE;
 			}
@@ -939,7 +992,7 @@ void incrementTimer(){
 	}
 
 	//Execute k1 instructions
-	for (int j= 0; j<k1; j++){
+	for (int j= 0; j<k1*2; j++){
 		if (inK1[j] != NULL){
 			//Decrease time left
 			inK1[j]->age--;
@@ -960,7 +1013,7 @@ void incrementTimer(){
 	}	
 
 	//Execute k2 instructions
-	for (int j= 0; j<k2; j++){
+	for (int j= 0; j<k2*3; j++){
 		if (inK2[j] != NULL){
 			//Decrease time left
 			inK2[j]->age--;
@@ -1010,15 +1063,15 @@ void exchangeCDB(){
 */
 void orderCDB(){
 	//Temporary CDB holder
-	CDBbus tempCDB;
+	CDBbus tempCDB2;
 
 	//Go though all elements and switch as necessary
-	for(int i=0; i<CDBsize; i++){
-        for(int j=i; j<CDBsize; j++){
-           	if(CDB[i].line_number > CDB[j].line_number){
-           		tempCDB=CDB[i];
- 	      		CDB[i]=CDB[j];
-               	CDB[j]=tempCDB;
+	for(int i=0; i<tempCDBsize; i++){
+        for(int j=i; j<tempCDBsize; j++){
+           	if(tempCDB[i].line_number > tempCDB[j].line_number){
+           		tempCDB2=tempCDB[i];
+ 	      		tempCDB[i]=tempCDB[j];
+               	tempCDB[j]=tempCDB2;
            	}
         }
     }
@@ -1042,6 +1095,8 @@ void executeInstructions1(){
 	updateReg();
 	//Give up FU
 	removeFU();
+	//Order the CDB
+	orderCDB();
 }
 
 /*
@@ -1057,9 +1112,6 @@ void executeInstructions1(){
 void executeInstructions2(){
 	//Create teh correct CDB
 	exchangeCDB();
-	//Order the CDB
-	orderCDB();
-
 }
 ///////////////////////////STATE UPDATE////////////////////////////////
 /*
@@ -1114,8 +1166,6 @@ void removeScheduler(){
  					updateNode->retire = cycle;
  					updateROBfromNode(updateNode);
  					removeLL(&k1QueuePointers, updateNode,TRUE);
- 					//printf("update: %d %d\n", updateNode->line_number, cycle);
-
  					break;
  				}
  				//go to next node
@@ -1236,8 +1286,8 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 tempCDB = (CDBbus *) malloc((k0+k1+k2+10)*sizeof(CDBbus));		//CDB
 	 //Arrays to hold pointers to currently in FU
 	 inK0 = (node**) malloc(k0*sizeof(node*));
-	 inK1 = (node**) malloc(k1*sizeof(node*));
-	 inK2 = (node**) malloc(k2*sizeof(node*));
+	 inK1 = (node**) malloc(k1*2*sizeof(node*));
+	 inK2 = (node**) malloc(k2*3*sizeof(node*));
 
 	 //Initialize pointers
 	 //ROB FIFO
@@ -1245,8 +1295,8 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 //LL Pointers
 	 dispatchPointers = {NULL, NULL, (int)r      , (int)0}; 
 	 k0QueuePointers =  {NULL, NULL, (int)(m*k0) , (int)k0};
-	 k1QueuePointers =  {NULL, NULL, (int)(m*k1) , (int)k1};
-	 k2QueuePointers =  {NULL, NULL, (int)(m*k2) , (int)k2};
+	 k1QueuePointers =  {NULL, NULL, (int)(m*k1) , (int)k1*2};
+	 k2QueuePointers =  {NULL, NULL, (int)(m*k2) , (int)k2*3};
 
 }
 
@@ -1268,7 +1318,15 @@ void run_proc(proc_stats_t* p_stats) {
 	while(flag){
 		//Change clock cycle
 		cycle++;
-
+		//////////////SECOND HALF OF CYCLE//////////////////////
+		//SU2
+		updateState2();
+		//EXEC1
+		executeInstructions2();
+		//SCHED1
+		scheduleInstructions2();
+		//DISPATCH2
+		dispatchInstructions2();
 		//////////////FIRST HALF OF CYCLE///////////////////////
 		//SU1
 		updateState1();
@@ -1280,15 +1338,6 @@ void run_proc(proc_stats_t* p_stats) {
 		dispatchInstructions1();
 		//FETCH
 		fetchInstructions();
-		//////////////SECOND HALF OF CYCLE//////////////////////
-		//SU2
-		updateState2();
-		//EXEC1
-		executeInstructions2();
-		//SCHED1
-		scheduleInstructions2();
-		//DISPATCH2
-		dispatchInstructions2();
 		////////////////////////////////////////////////////////
 	}
 }
