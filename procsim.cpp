@@ -24,6 +24,7 @@ typedef struct _reg{
 //CDB node
 typedef struct _CDBbus{
 	int line_number;
+	int ind;
 	int tag; 
 	int reg;
 	int FU; 
@@ -35,6 +36,7 @@ typedef struct _node{
 	_node *prev;
 	proc_inst_t p_inst;
 	int line_number;
+	int ind;
 	int destTag;
 	int src1Tag;
 	int src2Tag;
@@ -145,6 +147,7 @@ void printROB(int index){
 * int - status
 */
 int statusROB(){
+
 	if(ROBPointers.tail==ROBPointers.head && ROBPointers.size == 0){
 		return EMPTY;
 	}else if(ROBPointers.head == ROBPointers.tail){
@@ -170,12 +173,12 @@ int addROB(node* dispatchNode){
 	if (statusROB()!=FULL){			//if there is room in the ROB
 		//Put item into ROB table
 		ROBTable[ROBPointers.tail].line_number = dispatchNode->line_number;
-		ROBTable[ROBPointers.tail].destTag = ROBPointers.tail;
+		ROBTable[ROBPointers.tail].destTag = dispatchNode->destTag;
 		ROBTable[ROBPointers.tail].p_inst = dispatchNode->p_inst;
 		ROBTable[ROBPointers.tail].done = 0;
 		//Fix register file
 		if (dispatchNode->p_inst.dest_reg!=-1){
-			regFile[dispatchNode->p_inst.dest_reg].tag = ROBPointers.tail;
+			regFile[dispatchNode->p_inst.dest_reg].tag = dispatchNode->destTag;
 		}
 		//Fix pointers
 		ROBPointers.tail = (ROBPointers.tail+1)%r;
@@ -239,13 +242,13 @@ void removeROB(){
 * none
 */
 void updateROBfromNode(node* update){
-	ROBTable[update->destTag].line_number = update->line_number;
-	ROBTable[update->destTag].fetch = update->fetch;
-	ROBTable[update->destTag].disp = update->disp;
-	ROBTable[update->destTag].sched = update->sched;
-	ROBTable[update->destTag].exec = update->exec;
-	ROBTable[update->destTag].state = update->state;
-	ROBTable[update->destTag].retire = update->retire;
+	ROBTable[update->ind].line_number = update->line_number;
+	ROBTable[update->ind].fetch = update->fetch;
+	ROBTable[update->ind].disp = update->disp;
+	ROBTable[update->ind].sched = update->sched;
+	ROBTable[update->ind].exec = update->exec;
+	ROBTable[update->ind].state = update->state;
+	ROBTable[update->ind].retire = update->retire;
 }
 
 /*
@@ -359,9 +362,9 @@ node* createNode(proc_inst_t p_inst, int line_number){
 	//Copy over data
 	newNode->p_inst = p_inst;
 	newNode->line_number = line_number;
+	newNode->destTag = line_number;
 
 	//Add valididty data
-	newNode->destTag = UNINITIALIZED;
 	newNode->src1Tag = UNINITIALIZED;
 	newNode->src2Tag = UNINITIALIZED;
 	newNode->age = UNINITIALIZED;
@@ -394,10 +397,6 @@ void createNodeforSched(node* dispatchNode){
 		dispatchNode->src2Tag = READY;
 	}
 
-	dispatchNode->sched = cycle+1;
-
-	//Set so not in FU yet
-	dispatchNode->age = READY;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////
@@ -460,8 +459,8 @@ void fetchInstructions(){
 
 ///////////////////////////DISPATCH///////////////////////////////////
 /*
-* dispatchInstructions
-* Dispatch Instcutions
+* setUpRegs
+* Reads the registers for instructions
 *
 * parameters: 
 * none 
@@ -469,7 +468,34 @@ void fetchInstructions(){
 * returns:
 * none
 */
-void dispatchInstructions(){
+void setUpRegs(){
+	//Node
+	node* dispatchNode;
+
+	//Initialize initial node to be dispatched
+	dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
+	
+	//Read from dispatch queue
+	while(dispatchNode!=NULL){
+		//Add scheduling info
+		createNodeforSched(dispatchNode);
+		//Go to next node
+		dispatchNode = dispatchNode->next;
+	}
+}
+
+
+/*
+* dispatchToScheduler
+* Dispatch to Scheduler
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void dispatchToScheduler(){
 	//Node
 	node* dispatchNode;
 	node* dispatchNodeTemp; 
@@ -479,6 +505,7 @@ void dispatchInstructions(){
 	proc_inst_t instructionDispatch;
 	//Tag;
 	int tag; 
+	int a, b;
 
 	//Initialize initial node to be dispatched
 	dispatchNode = dispatchPointers.head;		//Node for instruction in dispatch queue
@@ -490,13 +517,29 @@ void dispatchInstructions(){
 
 		//add to correct scheduling queue and ROB and remove from dispatcher
 		if ((instructionDispatch.op_code == 0 || instructionDispatch.op_code == -1 ) && statusLL(k0QueuePointers)!=FULL){
+
 			if (statusROB()!=FULL){
+				/*a = dispatchNode->src1Tag;
+				b = dispatchNode->src2Tag;*/
 				//Add new data	
 				createNodeforSched(dispatchNode);
+
+				/*if (a != dispatchNode->src1Tag){
+					printf("\n%d, %d, %d\n", a, dispatchNode->src1Tag, dispatchNode->line_number);
+				}
+				if (b != dispatchNode->src2Tag){
+					printf("\n%d, %d, %d\n", b, dispatchNode->src2Tag, dispatchNode->line_number);
+				}*/
+
+				dispatchNode->sched = cycle+1;
+
+				//Set so not in FU yet
+				dispatchNode->age = READY;
 				//Add to ROB
 				tag = addROB(dispatchNode);	
 				//Copy over data
-				dispatchNode->destTag = tag;
+				dispatchNode->ind = tag;
+
 
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
@@ -511,13 +554,19 @@ void dispatchInstructions(){
 				dispatcherFlag = FALSE;
 			}
 		}else if(instructionDispatch.op_code == 1 && statusLL(k1QueuePointers)!=FULL){
+
 			if (statusROB()!=FULL){
+
 				//Add new data	
 				createNodeforSched(dispatchNode);
 				//Add to ROB
 				tag = addROB(dispatchNode);	
 				//Copy over data
-				dispatchNode->destTag = tag;
+				dispatchNode->ind = tag;
+				dispatchNode->sched = cycle+1;
+
+				//Set so not in FU yet
+				dispatchNode->age = READY;
 
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
@@ -528,6 +577,7 @@ void dispatchInstructions(){
 				//Add to queue linked list
 				addLL(&k1QueuePointers, dispatchNodeTemp);	
 				//printf("%d %d, %d\n", dispatchNodeTemp->line_number, k1QueuePointers.size, cycle);
+
 
 			}else{
 				//if ROB full, stop dispatch
@@ -540,7 +590,11 @@ void dispatchInstructions(){
 				//Add to ROB
 				tag = addROB(dispatchNode);	
 				//Copy over data
-				dispatchNode->destTag = tag;
+				dispatchNode->ind = tag;
+				dispatchNode->sched = cycle+1;
+
+				//Set so not in FU yet
+				dispatchNode->age = READY;
 
 				//Go to next item in scheduler
 				dispatchNodeTemp = dispatchNode;
@@ -561,6 +615,37 @@ void dispatchInstructions(){
 
 	}
 }
+
+
+/*
+* dispatchInstructions1
+* Dispatch Instcutions
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void dispatchInstructions1(){
+	//setUpRegs();
+
+	dispatchToScheduler();
+}
+
+/*
+* dispatchInstructions2
+* Dispatch Instcutions
+*
+* parameters: 
+* none 
+*
+* returns:
+* none
+*/
+void dispatchInstructions2(){
+}
+
 
 ///////////////////////////SCHEDULE///////////////////////////////////
 
@@ -649,6 +734,7 @@ void scheduleInstructionstoFU(){
 
 		//Check if item can be put in k0 execute
 		if (temp0!=NULL && k0QueuePointers.availExec>0 && temp0->src1Tag == READY && temp0->src2Tag == READY && temp0->age == READY){
+
 			//Add new node to list
 			k0QueuePointers.availExec--;
 			temp0->age  = 1;
@@ -840,6 +926,7 @@ void incrementTimer(){
 			//Check if instructions is done
 			if (inK0[j]->age == 0){
 				tempCDB[tempCDBsize].tag = inK0[j]->destTag;
+				tempCDB[tempCDBsize].ind = inK0[j]->ind;
 				tempCDB[tempCDBsize].FU = 0;
 				tempCDB[tempCDBsize].line_number = inK0[j]->line_number;
 				tempCDB[tempCDBsize++].reg = inK0[j]->p_inst.dest_reg;
@@ -859,6 +946,7 @@ void incrementTimer(){
 			//Check if instructions is done
 			if (inK1[j]->age == 0){
 				tempCDB[tempCDBsize].tag = inK1[j]->destTag;
+				tempCDB[tempCDBsize].ind = inK1[j]->ind;
 				tempCDB[tempCDBsize].FU = 1;
 				tempCDB[tempCDBsize].line_number = inK1[j]->line_number;
 				tempCDB[tempCDBsize++].reg = inK1[j]->p_inst.dest_reg;	
@@ -879,6 +967,7 @@ void incrementTimer(){
 			//Check if instructions is done
 			if (inK2[j]->age == 0){
 				tempCDB[tempCDBsize].tag = inK2[j]->destTag;
+				tempCDB[tempCDBsize].ind = inK2[j]->ind;
 				tempCDB[tempCDBsize].FU = 2;
 				tempCDB[tempCDBsize].line_number = inK2[j]->line_number;
 				tempCDB[tempCDBsize++].reg = inK2[j]->p_inst.dest_reg;
@@ -985,7 +1074,7 @@ void executeInstructions2(){
 */
 void markROBDone(){
 	for (int i= 0; i < CDBsize; i++){
-		updateROB(CDB[i].tag);
+		updateROB(CDB[i].ind);
 	}
 }
 
@@ -1063,7 +1152,7 @@ void removeScheduler(){
 void retireInstructions(){
 	int indexROB;
 	int initHead = ROBPointers.head;
-	int initSize = ROBPointers.size;
+
 	//Retire as many instructions as possible
 	for (int i = 0; i<f; i++){
 		indexROB = (initHead + i)%r;
@@ -1187,8 +1276,8 @@ void run_proc(proc_stats_t* p_stats) {
 		executeInstructions1();
 		//SCHED1
 		scheduleInstructions1();
-		//DISPATCH
-		dispatchInstructions();
+		//DISPATCH1
+		dispatchInstructions1();
 		//FETCH
 		fetchInstructions();
 		//////////////SECOND HALF OF CYCLE//////////////////////
@@ -1198,6 +1287,8 @@ void run_proc(proc_stats_t* p_stats) {
 		executeInstructions2();
 		//SCHED1
 		scheduleInstructions2();
+		//DISPATCH2
+		dispatchInstructions2();
 		////////////////////////////////////////////////////////
 	}
 }
