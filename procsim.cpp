@@ -1193,7 +1193,7 @@ void retireInstructions(){
 	for (int i = 0; i<f; i++){
 		indexROB = (initHead + i)%r;
 		//check if it is valid and remove if it is
-		if (ROBTable[indexROB].done ==1){
+		if (ROBTable[indexROB].done ==1 && (cycle - ROBTable[indexROB].state)>0){	//change 2.2
 			removeROB();
 		}else{		//if not done, stop removing
 			break;
@@ -1218,7 +1218,7 @@ void retireInstructions(){
 * none
 */
 void updateState1(){
-	retireInstructions();
+	//retireInstructions(); //change 2.2
 	markROBDone();
 }
 
@@ -1234,6 +1234,7 @@ void updateState1(){
 */
 void updateState2(){
 	removeScheduler();
+	retireInstructions(); //change 2.2
 }
 /////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////PIPELINE DRIVERS//////////////////////////////////////////
@@ -1303,7 +1304,6 @@ void run_proc(proc_stats_t* p_stats) {
 	//Pipeline
 	while(flag){
 		//Change clock cycle
-		cycle++;
 		//////////////SECOND HALF OF CYCLE//////////////////////
 		//SU2
 		updateState2();
@@ -1313,6 +1313,10 @@ void run_proc(proc_stats_t* p_stats) {
 		scheduleInstructions2();
 		//DISPATCH2
 		dispatchInstructions2();
+		////////////////////////////////////////////////////////
+
+		cycle++;
+
 		//////////////FIRST HALF OF CYCLE///////////////////////
 		//SU1
 		updateState1();
@@ -1326,6 +1330,8 @@ void run_proc(proc_stats_t* p_stats) {
 		fetchInstructions();
 		////////////////////////////////////////////////////////
 	}
+
+	cycle = cycle - 1; 		//correct for overcounting cycles at end
 }
 
 /**
