@@ -1345,7 +1345,7 @@ void complete_proc(proc_stats_t *p_stats) {
 	//stats
 	p_stats->retired_instruction = instruction;
 	p_stats->cycle_count = cycle;
-	p_stats->avg_inst_fire = ((double)instruction)/cycle;
+	p_stats->avg_inst_retired = ((double)instruction)/cycle;
 
 	//Free allocated memory
 	free(CDB);

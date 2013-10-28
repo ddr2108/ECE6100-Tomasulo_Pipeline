@@ -1,7 +1,7 @@
 #ifndef PROCSIM_HPP
 #define PROCSIM_HPP
 
-#include <stdint.h>
+#include <cstdint>
 
 #define DEFAULT_K0 1
 #define DEFAULT_K1 2
@@ -23,11 +23,9 @@ typedef struct _proc_inst_t
 
 typedef struct _proc_stats_t
 {
-    float avg_inst_fire;
+    float avg_inst_retired;
     unsigned long retired_instruction;
     unsigned long cycle_count;
-    float avg_ipc;
-    float perc_branch_pred;
 } proc_stats_t;
 
 bool read_instruction(proc_inst_t* p_inst);

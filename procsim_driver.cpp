@@ -1,5 +1,5 @@
 #include <cstdio>
-#include <inttypes.h>
+#include <cinttypes>
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
@@ -12,7 +12,7 @@ void print_help_and_exit(void) {
     printf("  -j k0\t\tNumber of k0 FUs\n");
     printf("  -k k1\t\tNumber of k1 FUs\n");
     printf("  -l k2\t\tNumber of k2 FUs\n");
-    printf("  -m M\t\tNumber of blocks per set is 2^S\n");
+    printf("  -m M\t\tScheduler Queue Multiplier\n");    
     printf("  -f N\t\tNumber of instructions to fetch\n");
     printf("  -r R\t\tROB Size\n");
     printf("  -i traces/file.trace\n");
@@ -121,7 +121,7 @@ int main(int argc, char* argv[]) {
 
 void print_statistics(proc_stats_t* p_stats) {
     printf("Processor stats:\n");
-	printf("Avg inst fired per cycle: %f\n", p_stats->avg_inst_fire);
+	printf("Avg inst retired per cycle: %f\n", p_stats->avg_inst_retired);
 	printf("Total instructions: %lu\n", p_stats->retired_instruction);
 	printf("Total run time (cycles): %lu\n", p_stats->cycle_count);
 }
