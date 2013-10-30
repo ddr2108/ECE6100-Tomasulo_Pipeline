@@ -137,7 +137,7 @@ int add0, add1, add2;
 * none
 */
 void printROB(int index){
-	printf("%d %d %d %d %d %d %d\n", ROBTable[index].line_number, ROBTable[index].fetch, ROBTable[index].disp, ROBTable[index].sched, ROBTable[index].exec, ROBTable[index].state, ROBTable[index].retire);
+	printf("%d\t%d\t%d\t%d\t%d\t%d\t%d\n", ROBTable[index].line_number, ROBTable[index].fetch, ROBTable[index].disp, ROBTable[index].sched, ROBTable[index].exec, ROBTable[index].state, ROBTable[index].retire);
 }
 
 /*
@@ -1261,6 +1261,7 @@ void setup_proc(uint64_t rIn, uint64_t k0In, uint64_t k1In, uint64_t k2In, uint6
 	 k2 = k2In;
 	 f = fIn;
 	 m = mIn;
+	printf("INST\tFETCH\tDISP\tSCHED\tEXEC\tSTATE\tRETIRE\n");
 
 	 //Initialize reg array
 	 for (int i = 0; i<32; i++){
@@ -1346,6 +1347,8 @@ void complete_proc(proc_stats_t *p_stats) {
 	p_stats->retired_instruction = instruction;
 	p_stats->cycle_count = cycle;
 	p_stats->avg_inst_retired = ((double)instruction)/cycle;
+
+	printf("\n");
 
 	//Free allocated memory
 	free(CDB);
